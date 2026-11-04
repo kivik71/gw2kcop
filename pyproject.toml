@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gw2kcop"
+version = "0.0.1"
+description = "Parsers for (Polish) bank and broker exports to a common transactions CSV"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+authors = [{ name = "kivik71" }]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Operating System :: MacOS",
+  "Operating System :: Microsoft :: Windows",
+  "Topic :: Office/Business :: Financial :: Accounting",
+]
+# Runtime dependencies are deliberately limited (see SECURITY.md, "Supply chain").
+# Any addition needs a written justification in the pull request.
+dependencies = [
+  "openpyxl",    # XTB exports (.xlsx)
+  "defusedxml",  # safe XML parsing for openpyxl
+  "xlrd",        # PPK NN exports (legacy .xls); approved 2026-11-04
+]
+
+[project.optional-dependencies]
+prices-yahoo = ["yfinance"]
+dev = ["pytest", "pip-audit", "setuptools>=75"]  # setuptools: hash-pinned build backend
+
+[project.scripts]
+gw2kcop = "gw2kcop.cli:main"
+
+[project.urls]
+Source = "https://github.com/kivik71/gw2kcop"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+gw2kcop = ["transactions/parsers/**/*.toml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"

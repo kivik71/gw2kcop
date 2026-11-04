@@ -1,0 +1,46 @@
+# --- Data: deny by default (see SECURITY.md) ---
+# Real exports and master files must never enter this repository.
+*.csv
+*.tsv
+*.txt
+*.xlsx
+*.xlsm
+*.xls
+*.ods
+*.json
+*.pdf
+*.zip
+# Re-allow synthetic fixtures only
+!tests/fixtures/**
+# Re-allow repository config files
+!.github/**/*.json
+!requirements*.txt
+
+# Local folders that may hold real data or secrets
+Finanse/
+Eksporty/
+Dane/
+Probki/
+.anonimizator/
+.backup/
+*.key
+*.pem
+.env
+.env.*
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# --- OS / editors ---
+.DS_Store
+.idea/
+.vscode/

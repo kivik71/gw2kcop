@@ -23,6 +23,7 @@ dependencies = [
   "openpyxl",    # XTB exports (.xlsx)
   "defusedxml",  # safe XML parsing for openpyxl
   "xlrd",        # PPK NN exports (legacy .xls); approved 2026-11-04
+  "tzdata; sys_platform == 'win32'",  # time zone database for zoneinfo (Windows has none)
 ]
 
 [project.optional-dependencies]

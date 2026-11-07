@@ -1,7 +1,7 @@
 import pytest
 
 from gw2kcop import __version__
-from gw2kcop.cli import NOT_IMPLEMENTED_EXIT, SUBCOMMANDS, main
+from gw2kcop.cli import NOT_IMPLEMENTED, NOT_IMPLEMENTED_EXIT, main
 
 
 def test_no_command_prints_help(capsys):
@@ -16,7 +16,7 @@ def test_version(capsys):
     assert __version__ in capsys.readouterr().out
 
 
-@pytest.mark.parametrize("command", sorted(SUBCOMMANDS))
+@pytest.mark.parametrize("command", sorted(NOT_IMPLEMENTED))
 def test_subcommands_fail_closed_until_implemented(command, capsys):
     assert main([command]) == NOT_IMPLEMENTED_EXIT
     assert "not implemented" in capsys.readouterr().err

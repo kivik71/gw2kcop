@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import sys
 from collections.abc import Sequence
+from pathlib import Path
 
 from gw2kcop import __version__
 from gw2kcop.accounts import AccountsError, load_accounts
@@ -23,7 +24,6 @@ NOT_IMPLEMENTED: dict[str, str] = {
     "transactions": "parse exports and merge new rows into transactions.csv",
     "fx": "download NBP exchange rates into fx_rates.csv",
     "prices": "download daily closing prices into prices.csv",
-    "anonymize": "make an anonymized sample from a real export",
 }
 
 
@@ -48,6 +48,21 @@ def build_parser() -> argparse.ArgumentParser:
     target.add_argument("month", nargs="?", help="month as RRRR-MM, e.g. 2026-11")
     target.add_argument("--start", action="store_true", help="create _start/<account_id>/ for full histories")
 
+    anon = sub.add_parser(
+        "anonymize",
+        help="make an anonymized sample from a real export (CSV)",
+        description="Make an anonymized copy of an export (file or folder of .csv files), "
+        "or --check a finished sample.",
+    )
+    anon.add_argument("path", help="export file, folder of exports, or the sample to --check")
+    anon.add_argument("--check", action="store_true", help="only scan PATH for identifiers left behind")
+    anon.add_argument("--output", metavar="DIR", help="output folder (default: paths.samples)")
+    anon.add_argument("--rows", type=int, metavar="N", help="keep at most N data rows (varied types)")
+    anon.add_argument("--keep-last4", action="store_true", help="keep the last 4 digits of account numbers")
+    anon.add_argument("--decimal", choices=[",", "."], help="decimal separator (default: detected)")
+    anon.add_argument("--scale-quantities", action="store_true", help="also scale quantity columns")
+    anon.add_argument("--mapping-dir", metavar="DIR", help="anonymizer folder (default: paths.anonymizer)")
+
     for name, help_text in NOT_IMPLEMENTED.items():
         sub.add_parser(name, help=help_text, description=help_text)
     return parser
@@ -65,11 +80,13 @@ def _cmd_config(args: argparse.Namespace) -> int:
             print(f"Already exists, not changed: {path}")
         return OK
     config = load_config(args.config)
-    print(f"config:    {config.source}")
-    print(f"timezone:  {config.timezone.key}")
-    print(f"exports:   {config.exports_dir}")
-    print(f"data:      {config.data_dir}")
-    print(f"accounts:  {config.accounts_file}")
+    print(f"config:     {config.source}")
+    print(f"timezone:   {config.timezone.key}")
+    print(f"exports:    {config.exports_dir}")
+    print(f"data:       {config.data_dir}")
+    print(f"accounts:   {config.accounts_file}")
+    print(f"anonymizer: {config.anonymizer_dir or '(not set)'}")
+    print(f"samples:    {config.samples_dir or '(not set)'}")
     return OK
 
 
@@ -83,6 +100,79 @@ def _cmd_prepare(args: argparse.Namespace) -> int:
     return OK
 
 
+def _anonymizer_dir(args: argparse.Namespace, config) -> Path:
+    if args.mapping_dir:
+        return Path(args.mapping_dir).expanduser()
+    if config and config.anonymizer_dir:
+        return config.anonymizer_dir
+    raise ConfigError("set paths.anonymizer in the config file or pass --mapping-dir")
+
+
+def _cmd_anonymize(args: argparse.Namespace) -> int:
+    from gw2kcop.anonymize.core import Options, anonymize_file, check_text
+    from gw2kcop.anonymize.mapping import load_mapping, load_terms, save_mapping
+    from gw2kcop.io.text import read_text
+
+    try:
+        config = load_config(args.config)
+    except ConfigError:
+        if not args.mapping_dir:
+            raise
+        config = None
+    folder = _anonymizer_dir(args, config)
+    mapping = load_mapping(folder)
+    source = Path(args.path).expanduser()
+
+    if args.check:
+        findings = check_text(read_text(source).text, mapping)
+        for finding in findings:
+            print(f"  ! {finding}")
+        print(f"{source.name}: {'NOT safe to share' if findings else 'no identifiers found'} "
+              f"({len(findings)} finding(s)). Always also read the sample yourself.")
+        return ERROR if findings else OK
+
+    terms = load_terms(folder)
+    if config and config.accounts_file.is_file():
+        terms += [a.export_identifier for a in load_accounts(config.accounts_file) if a.export_identifier]
+        terms = sorted(set(terms), key=len, reverse=True)
+    if args.output:
+        output_dir = Path(args.output).expanduser()
+    elif config and config.samples_dir:
+        output_dir = config.samples_dir
+    else:
+        raise ConfigError("set paths.samples in the config file or pass --output")
+    files = sorted(source.glob("*.csv")) if source.is_dir() else [source]
+    skipped = sorted(p.name for p in source.iterdir() if p.is_file() and p.suffix.lower() != ".csv") if source.is_dir() else []
+    if not files:
+        raise ValueError(f"no .csv files in {source}")
+    options = Options(rows=args.rows, keep_last=4 if args.keep_last4 else 0,
+                      decimal_sep=args.decimal, scale_quantities=args.scale_quantities)
+    status = OK
+    for path in files:
+        if path.suffix.lower() != ".csv":
+            raise ValueError(f"{path.name}: only .csv is supported for now (XLSX/XLS: next stage)")
+        report = anonymize_file(path, output_dir, mapping, terms, options)
+        save_mapping(folder, mapping)
+        print(f"{path.name} -> {report.output}")
+        print(f"  encoding {report.encoding}, delimiter {report.delimiter!r}, decimal {report.decimal_sep!r}, "
+              f"rows {report.data_rows_out}/{report.data_rows_in}")
+        print(f"  scaled columns: {', '.join(report.scaled_columns) or '-'}")
+        if report.kept_quantity_columns:
+            print(f"  quantity columns kept: {', '.join(report.kept_quantity_columns)}")
+        print(f"  replaced: {dict(report.replaced) or '-'}")
+        for note in report.suspicious:
+            print(f"  ? {note}")
+        findings = check_text(read_text(report.output).text, mapping)
+        for finding in findings:
+            print(f"  ! {finding}")
+        if findings:
+            status = ERROR
+    for name in skipped:
+        print(f"skipped (not .csv yet): {name}")
+    print("Check every sample by eye before sharing it. '?' lines need your attention.")
+    return status
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -94,6 +184,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _cmd_config(args)
         if args.command == "prepare":
             return _cmd_prepare(args)
+        if args.command == "anonymize":
+            return _cmd_anonymize(args)
     except (ConfigError, AccountsError, ValueError) as exc:
         print(f"gw2kcop {args.command}: {exc}", file=sys.stderr)
         return ERROR

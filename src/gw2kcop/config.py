@@ -35,10 +35,15 @@ exports = "~/Finanse/Eksporty"
 data = "~/Finanse/Dane"
 # List of accounts (default: <data>/accounts.csv)
 accounts = "~/Finanse/Dane/accounts.csv"
+# Anonymizer: secret mapping (mapping.json) and your own sensitive terms (terms.txt).
+# Keep it private: never sync, share or commit this folder.
+anonymizer = "~/Finanse/.anonimizator"
+# Where anonymized samples are written
+samples = "~/Finanse/Probki"
 """
 
 _TOP_KEYS = {"timezone", "paths"}
-_PATH_KEYS = {"exports", "data", "accounts"}
+_PATH_KEYS = {"exports", "data", "accounts", "anonymizer", "samples"}
 
 
 class ConfigError(ValueError):
@@ -52,6 +57,8 @@ class Config:
     exports_dir: Path
     data_dir: Path
     accounts_file: Path
+    anonymizer_dir: Path | None = None
+    samples_dir: Path | None = None
 
 
 def default_config_path() -> Path:
@@ -105,6 +112,8 @@ def parse_config(text: str, source: Path) -> Config:
         exports_dir=_path(paths["exports"], "exports"),
         data_dir=data_dir,
         accounts_file=accounts,
+        anonymizer_dir=_path(paths["anonymizer"], "anonymizer") if "anonymizer" in paths else None,
+        samples_dir=_path(paths["samples"], "samples") if "samples" in paths else None,
     )
 
 

@@ -124,12 +124,20 @@ def _cmd_anonymize(args: argparse.Namespace) -> int:
     source = Path(args.path).expanduser()
 
     if args.check:
-        findings = check_text(read_text(source).text, mapping)
-        for finding in findings:
-            print(f"  ! {finding}")
-        print(f"{source.name}: {'NOT safe to share' if findings else 'no identifiers found'} "
-              f"({len(findings)} finding(s)). Always also read the sample yourself.")
-        return ERROR if findings else OK
+        samples = sorted(source.glob("*.csv")) if source.is_dir() else [source]
+        if not samples:
+            raise ValueError(f"no .csv files in {source}")
+        status = OK
+        for sample in samples:
+            findings = check_text(read_text(sample).text, mapping)
+            for finding in findings:
+                print(f"  ! {finding}")
+            print(f"{sample.name}: {'NOT safe to share' if findings else 'no identifiers found'} "
+                  f"({len(findings)} finding(s)).")
+            if findings:
+                status = ERROR
+        print("Always also read the samples yourself.")
+        return status
 
     terms = load_terms(folder)
     if config and config.accounts_file.is_file():

@@ -125,7 +125,7 @@ def test_csv_format_and_content(tmp_path):
     assert out.startswith(codecs.BOM_UTF8)
     assert out.count(b"\r\n") == 5 and b"\n" not in out.replace(b"\r\n", b"")
     assert "-968,00" in text and "4279,54" in text          # amounts and balances doubled
-    assert "38427130" in text                                # ids kept
+    assert "38427130" not in text and m.digits("38427130") in text  # ids pseudonymized
     assert "PLTEST000016" in text and "Dywidenda" in text    # ISIN and keywords kept
     assert "ANNA TESTOWA" not in text and "[OSOBA_1]" in text
     assert EXAMPLE_NRB not in text
@@ -216,3 +216,45 @@ def test_cli_end_to_end(tmp_path, capsys):
     assert "skipped (not .csv yet): statement.xlsx" in printed
     assert main([*cfg, "anonymize", "--check", str(out / "Historia_operacji.csv"), "--mapping-dir", str(anon)]) == 0
     assert main([*cfg, "anonymize", "--check", str(src / "Historia_operacji.csv"), "--mapping-dir", str(anon)]) == 1
+
+
+def test_ids_pseudonymized_consistently_across_columns_and_text():
+    rows = (
+        "Data;Opis;Ilosc;Id zlecenia\n"
+        "22-05-2026;NOT: 54345393 ZLC: 26423031 PW: PLTEST000016 20260522;-4;26423031\n"
+        "23-05-2026;NOT: 54345394 ZLC: 26423032 PW: PLTEST000016;-5;26423032\n"
+    )
+    m = Mapping(b"k" * 32)
+    out, report = anonymize_bytes(rows.encode(), None, m, [], opts())
+    text = out.decode()
+    first = text.splitlines()[1].split(";")
+    zlc = first[1].split("ZLC: ")[1].split(" ")[0]
+    assert zlc == first[3] != "26423031"         # join description <-> order id survives
+    assert "54345393" not in text and "PLTEST000016" in text
+    assert "20260522" in text                    # compact date is not an id
+    assert report.replaced["id"] >= 4
+    assert check_text(text, m) == []
+
+
+def test_id_pseudonym_never_looks_personal():
+    m = Mapping(b"k" * 32)
+    for n in range(300):
+        rows = f"A;Id\nx;{10_000_000_000 + n * 7919}\ny;1\n"
+        out, _ = anonymize_bytes(rows.encode(), None, m, [], opts())
+        value = out.decode().splitlines()[1].split(";")[1]
+        assert not (pt.is_pesel(value) or pt.is_nip(value) or pt.is_luhn(value))
+
+
+@pytest.mark.parametrize("header", ["Koszt nabycia", "Kosztorys"])
+def test_words_containing_szt_are_not_quantity(header):
+    rows = f"Walor;{header}\nABC;100,50\nDEF;20,25\n"
+    out, report = anonymize_bytes(rows.encode(), None, Mapping(b"k" * 32), [], opts(factor=Decimal("2")))
+    assert report.scaled_columns == [header] and report.kept_quantity_columns == []
+    assert "201,00" in out.decode()
+
+
+def test_kept_quantity_cells_are_not_treated_as_ids():
+    rows = "Walor;Liczba jednostek;Kwota\nABC;1234567,500000;10,00\nDEF;2,000000;5,00\n"
+    out, report = anonymize_bytes(rows.encode(), None, Mapping(b"k" * 32), [], opts())
+    assert report.kept_quantity_columns == ["Liczba jednostek"]
+    assert "1234567,500000" in out.decode()

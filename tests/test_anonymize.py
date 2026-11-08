@@ -216,6 +216,8 @@ def test_cli_end_to_end(tmp_path, capsys):
     assert "skipped (not .csv yet): statement.xlsx" in printed
     assert main([*cfg, "anonymize", "--check", str(out / "Historia_operacji.csv"), "--mapping-dir", str(anon)]) == 0
     assert main([*cfg, "anonymize", "--check", str(src / "Historia_operacji.csv"), "--mapping-dir", str(anon)]) == 1
+    assert main([*cfg, "anonymize", "--check", str(out), "--mapping-dir", str(anon)]) == 0  # whole folder
+    assert main([*cfg, "anonymize", "--check", str(src), "--mapping-dir", str(anon)]) == 1
 
 
 def test_ids_pseudonymized_consistently_across_columns_and_text():

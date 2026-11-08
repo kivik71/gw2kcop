@@ -19,8 +19,10 @@ from gw2kcop.io.text import decode_bytes
 # Header words that mark a quantity column: kept unless --scale-quantities,
 # because scaling quantity and price together would break value = qty x price.
 QUANTITY_HEADERS = re.compile(
-    r"ilość|liczba|quantity|volume|units|jednostek|shares|szt", re.IGNORECASE
+    r"\b(?:ilość|liczba|quantity|volume|units?|jednostek|shares|szt)\b", re.IGNORECASE
 )
+# Compact dates (YYYYMMDD) are not identifiers and stay as they are.
+_COMPACT_DATE_RE = re.compile(r"(?:19|20)\d\d(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])")
 SAFE_FACTOR_RANGE = (30, 300)  # factor = n / 100, i.e. 0.30 .. 3.00
 
 
@@ -95,6 +97,7 @@ def _classify_columns(records, header_idx, data_idx, decimal_sep, scale_quantiti
     width = len(header)
     scale: set[int] = set()
     kept_qty: list[str] = []
+    kept_qty_cols: set[int] = set()
     scaled_names: list[str] = []
     for col in range(width):
         cells = [records[i].fields[col].value for i in data_idx if records[i].fields[col].value.strip()]
@@ -107,10 +110,11 @@ def _classify_columns(records, header_idx, data_idx, decimal_sep, scale_quantiti
         name = header[col].strip()
         if QUANTITY_HEADERS.search(name) and not scale_quantities:
             kept_qty.append(name)
+            kept_qty_cols.add(col)
             continue
         scale.add(col)
         scaled_names.append(name)
-    return scale, scaled_names, kept_qty
+    return scale, scaled_names, kept_qty, kept_qty_cols
 
 
 def _pick_rows(records, data_idx, limit):
@@ -149,12 +153,14 @@ class TextScrubber:
         self.mapping = mapping
         self.keep_last = keep_last
         self.report = report
+        self._made: set[str] = set()  # pseudonyms produced while scrubbing one value
         self.term_res = [
             (term, re.compile(r"(?<!\w)" + re.escape(term) + r"(?!\w)", re.IGNORECASE)) for term in terms
         ]
 
     def __call__(self, value: str) -> str:
         out = value
+        self._made = set()
         for term, rx in self.term_res:
             if rx.search(out):
                 out = rx.sub(lambda m, t=term: self._term(t), out)
@@ -162,7 +168,7 @@ class TextScrubber:
         out = pt.NRB_RE.sub(lambda m: self._digits(m.group(0), "account"), out)
         out = pt.EMAIL_RE.sub(lambda m: self._tag("EMAIL", m.group(0), "email"), out)
         out = pt.PHONE_RE.sub(lambda m: self._tag("TELEFON", m.group(0), "phone"), out)
-        out = pt.DIGIT_RUN_RE.sub(self._digit_run, out)
+        out = pt.LONG_DIGITS_RE.sub(self._digit_run, out)
         return out
 
     def _term(self, term: str) -> str:
@@ -179,6 +185,7 @@ class TextScrubber:
                 pos = next(i for i, ch in enumerate(pseudonym) if ch.isdigit())
                 pseudonym = pseudonym[:pos] + str((int(pseudonym[pos]) + 1) % 10) + pseudonym[pos + 1:]
             self.mapping.pseudonyms[f"digits:{self.keep_last}:{value}"] = pseudonym
+        self._made.add(pseudonym)
         return pseudonym
 
     def _tag(self, kind: str, value: str, label: str) -> str:
@@ -186,15 +193,39 @@ class TextScrubber:
         return self.mapping.tag(kind, value)
 
     def _digit_run(self, m: re.Match[str]) -> str:
+        """Any run of 6+ digits: personal ids get a tag, other ids a digit pseudonym.
+
+        Order, trade and participant numbers are pseudonymized with the same
+        mapping everywhere, so a join such as ZLC in a description = order id
+        column still works in the sample.
+        """
         digits = m.group(0)
-        if pt.is_pesel(digits):
-            return self._tag("PESEL", digits, "PESEL")
-        if pt.is_nip(digits):
-            return self._tag("NIP", digits, "NIP")
-        if pt.is_luhn(digits):
-            self.report.replaced["card"] += 1
-            return f"[KARTA_****{digits[-4:]}]" if self.keep_last else self.mapping.tag("KARTA", digits)
-        return digits
+        if any(digits in made for made in self._made):
+            return digits
+        if 9 <= len(digits) <= 19:
+            if pt.is_pesel(digits):
+                return self._tag("PESEL", digits, "PESEL")
+            if pt.is_nip(digits):
+                return self._tag("NIP", digits, "NIP")
+            if pt.is_luhn(digits):
+                self.report.replaced["card"] += 1
+                return f"[KARTA_****{digits[-4:]}]" if self.keep_last else self.mapping.tag("KARTA", digits)
+        if len(digits) == 8 and _COMPACT_DATE_RE.fullmatch(digits):
+            return digits
+        self.report.replaced["id"] += 1
+        pseudonym = self.mapping.digits(digits)
+        salt = 0
+        while _looks_personal(pseudonym) and salt < 20:
+            # Never let a plain id turn into something that looks like a PESEL or card.
+            salt += 1
+            pseudonym = self.mapping.digits(f"{digits}#{salt}")[: len(digits)]
+            self.mapping.pseudonyms[f"digits:0:{digits}"] = pseudonym
+        self._made.add(pseudonym)
+        return pseudonym
+
+
+def _looks_personal(digits: str) -> bool:
+    return 9 <= len(digits) <= 19 and (pt.is_pesel(digits) or pt.is_nip(digits) or pt.is_luhn(digits))
 
 
 def anonymize_bytes(raw: bytes, source: Path, mapping: Mapping, terms: list[str],
@@ -209,7 +240,7 @@ def anonymize_bytes(raw: bytes, source: Path, mapping: Mapping, terms: list[str]
     report.decimal_sep = decimal_sep
     header_idx, data_idx = _split_table(records)
     report.data_rows_in = len(data_idx)
-    scale_cols, scaled_names, kept_qty = _classify_columns(
+    scale_cols, scaled_names, kept_qty, qty_cols = _classify_columns(
         records, header_idx, data_idx, decimal_sep, options.scale_quantities
     )
     report.scaled_columns, report.kept_quantity_columns = scaled_names, kept_qty
@@ -230,6 +261,8 @@ def anonymize_bytes(raw: bytes, source: Path, mapping: Mapping, terms: list[str]
                         report.replaced["amount"] += 1
                     f.value = scaled
                     continue
+            if i in data_set and col in qty_cols and is_number(f.value, decimal_sep):
+                continue
             f.value = scrub(f.value)
         out_records.append(record)
     # Keep the file's final line ending style even if its last data row was dropped.
@@ -300,7 +333,11 @@ def check_text(text: str, mapping: Mapping | None) -> list[str]:
     if mapping:
         lowered = text.casefold()
         for original in mapping.originals():
-            if len(original) >= 3 and original.casefold() in lowered:
+            if original.isdigit():
+                found = re.search(r"(?<!\d)" + original + r"(?!\d)", text) is not None
+            else:
+                found = len(original) >= 3 and original.casefold() in lowered
+            if found:
                 findings.append(f"original value from the mapping still present: {original[:3]}...")
     return findings
 

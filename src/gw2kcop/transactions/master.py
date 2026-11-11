@@ -297,6 +297,16 @@ def append_log(data_dir: Path, entry: dict[str, str]) -> None:
         os.chmod(log, 0o600)
 
 
+def count_new(data_dir: Path, transactions: Iterable[Transaction]) -> tuple[int, int]:
+    """Dry run: ``(new, already known)`` for one source file, nothing is written."""
+    keyed = assign_keys(transactions)
+    for key, tx in keyed:
+        validate(tx)
+    known = {row["key"] for row in read_master(data_dir / "transactions.csv")}
+    new = sum(1 for key, _ in keyed if key not in known)
+    return new, len(keyed) - new
+
+
 def merge(data_dir: Path, transactions: Iterable[Transaction], source_file: str,
           now: datetime | None = None) -> MergeResult:
     """Add the new rows of one source file to ``<data_dir>/transactions.csv``.

@@ -1,6 +1,7 @@
 """mBank brokerage exports through the TOML engine and the import command (synthetic data only)."""
 
 import codecs
+from dataclasses import replace
 import csv
 import io
 from datetime import date
@@ -81,10 +82,17 @@ def test_fee_in_trade_currency_settled_same_currency():
     assert (tx.amount, tx.fee, tx.currency) == (Decimal("-11.00"), Decimal("1.00"), "USD")
 
 
-def test_fee_with_currency_conversion_fails_closed():
+def test_fee_with_currency_conversion_is_in_settlement_currency():
+    row = export(TRADES_HEADER, ["TESTCO;DEU;Kupno;1;10,00000000;EUR;42,50;1,00;03.02.2026 10:00:00;PLN;4,2500"])
+    [tx] = parse_export(row, spec("trades"), ACCOUNT, REF, WARSAW)
+    assert (tx.amount, tx.fee, tx.currency, tx.price_currency) == (Decimal("-43.50"), Decimal("1.00"), "PLN", "EUR")
+
+
+def test_fee_only_same_currency_check_still_works():
+    strict = replace(spec("trades"), checks={**spec("trades").checks, "fee_only_same_currency": True})
     bad = export(TRADES_HEADER, ["TESTCO;DEU;Kupno;1;10,00000000;EUR;42,50;1,00;03.02.2026 10:00:00;PLN;4,2500"])
     with pytest.raises(ParseError, match="fee currency not confirmed"):
-        parse_export(bad, spec("trades"), ACCOUNT, REF, WARSAW)
+        parse_export(bad, strict, ACCOUNT, REF, WARSAW)
 
 
 def test_unknown_side_and_alias_are_reported_together():

@@ -30,7 +30,7 @@ _REQUIRED_COLUMNS = {
     "trades": {"instrument", "side", "quantity", "price", "price_currency", "gross", "time", "currency"},
     "cash": {"date", "direction", "description", "amount"},
 }
-_CHECK_KEYS = {"gross_equals_qty_price_fx", "fee_currencies", "balance_chain"}
+_CHECK_KEYS = {"gross_equals_qty_price_fx", "fee_only_same_currency", "balance_chain"}
 _RULE_KEYS = {"pattern", "direction", "type", "group"}
 _RULE_TYPES = {"deposit", "withdrawal", "dividend", "interest", "fee", "tax", "charge", "other"}
 

@@ -119,7 +119,7 @@ def _instrument(ctx: _Ctx, alias: str) -> str:
 
 def _trades(ctx: _Ctx, rows) -> list[Transaction]:
     spec, cols, out = ctx.spec, ctx.spec.columns, []
-    fee_currencies = spec.checks.get("fee_currencies")
+    fee_same_only = bool(spec.checks.get("fee_only_same_currency"))
     for line, row, raw in rows:
         before = len(ctx.errors)
         side = spec.sides.get(row[cols["side"]])
@@ -143,8 +143,9 @@ def _trades(ctx: _Ctx, rows) -> list[Transaction]:
             if abs(expected - gross) > CENT:
                 ctx.fail(line, f"value {gross} != quantity x price x rate ({expected.quantize(CENT)})")
                 continue
-        if fee and fee_currencies is not None and currency not in fee_currencies:
-            ctx.fail(line, f"fee currency for settlement in {currency} is not confirmed for this format")
+        price_currency = row[cols["price_currency"]]
+        if fee and fee_same_only and price_currency != currency:
+            ctx.fail(line, f"fee on a {price_currency} trade settled in {currency}: fee currency not confirmed")
             continue
         fee = fee or Decimal(0)
         alias = row[cols["instrument"]]

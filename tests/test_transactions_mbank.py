@@ -75,9 +75,15 @@ def test_trade_value_check_fails_closed():
         parse_export(bad, spec("trades"), ACCOUNT, REF, WARSAW)
 
 
-def test_fee_in_unconfirmed_currency_fails_closed():
-    bad = export(TRADES_HEADER, ["TESTCO;LON;Kupno;1;10,00000000;USD;10,00;1,00;03.02.2026 10:00:00;USD;"])
-    with pytest.raises(ParseError, match="fee currency"):
+def test_fee_in_trade_currency_settled_same_currency():
+    ok = export(TRADES_HEADER, ["TESTCO;LON;Kupno;1;10,00000000;USD;10,00;1,00;03.02.2026 10:00:00;USD;"])
+    [tx] = parse_export(ok, spec("trades"), ACCOUNT, REF, WARSAW)
+    assert (tx.amount, tx.fee, tx.currency) == (Decimal("-11.00"), Decimal("1.00"), "USD")
+
+
+def test_fee_with_currency_conversion_fails_closed():
+    bad = export(TRADES_HEADER, ["TESTCO;DEU;Kupno;1;10,00000000;EUR;42,50;1,00;03.02.2026 10:00:00;PLN;4,2500"])
+    with pytest.raises(ParseError, match="fee currency not confirmed"):
         parse_export(bad, spec("trades"), ACCOUNT, REF, WARSAW)
 
 

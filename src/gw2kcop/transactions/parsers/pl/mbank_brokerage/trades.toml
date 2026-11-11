@@ -31,6 +31,8 @@ fx_rate = "Kurs Przewalutowania"
 [checks]
 # Verified on all 64 sample rows: Wartość = Liczba x Kurs x Kurs Przewalutowania.
 gross_equals_qty_price_fx = true
-# The fee currency is confirmed only for PLN settlement. A fee on a trade settled
-# in another currency stops the import until the owner confirms its currency.
-fee_currencies = ["PLN"]
+# Owner, 2026-11-11: the fee is charged in the trade currency. That is unambiguous
+# only when the instrument currency equals the settlement currency (e.g. WWA in PLN,
+# LON in USD settled in USD). A fee on a trade with currency conversion
+# (Kurs Przewalutowania filled) stops the import until its currency is confirmed.
+fee_only_same_currency = true

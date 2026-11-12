@@ -40,18 +40,25 @@ class FileResult:
     moved_to: Path | None = None
 
 
-def _first_row(text: str, delimiter: str) -> list[str]:
+PREAMBLE_MAX_ROWS = 60  # a header further down than this is not looked for
+
+
+def _first_rows(text: str, delimiter: str) -> list[list[str]]:
+    rows = []
     for row in csv.reader(io.StringIO(text, newline=""), delimiter=delimiter):
         if any(cell.strip() for cell in row):
-            return row
-    return []
+            rows.append(row)
+            if len(rows) >= PREAMBLE_MAX_ROWS:
+                break
+    return rows
 
 
 def _detect(text: str, specs: list[FormatSpec], institution: str) -> FormatSpec | None:
     for delimiter in sorted({s.delimiter for s in specs if s.institution == institution}):
-        spec = detect(_first_row(text, delimiter), specs, institution)
-        if spec:
-            return spec
+        for n, row in enumerate(_first_rows(text, delimiter)):
+            spec = detect(row, specs, institution, after_preamble=n > 0)
+            if spec:
+                return spec
     return None
 
 

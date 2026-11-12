@@ -21,7 +21,6 @@ ERROR = 1
 NOT_IMPLEMENTED_EXIT = 2
 
 NOT_IMPLEMENTED: dict[str, str] = {
-    "transactions": "parse exports and merge new rows into transactions.csv",
     "fx": "download NBP exchange rates into fx_rates.csv",
     "prices": "download daily closing prices into prices.csv",
 }
@@ -62,6 +61,20 @@ def build_parser() -> argparse.ArgumentParser:
     anon.add_argument("--decimal", choices=[",", "."], help="decimal separator (default: detected)")
     anon.add_argument("--scale-quantities", action="store_true", help="also scale quantity columns")
     anon.add_argument("--mapping-dir", metavar="DIR", help="anonymizer folder (default: paths.anonymizer)")
+
+    tx = sub.add_parser(
+        "transactions",
+        help="import exports into transactions.csv",
+        description="Import every export of a month folder (<exports>/RRRR-MM/<account_id>/) "
+        "into <data>/transactions.csv. Files that import cleanly move to _zaimportowane/.",
+    )
+    tx_sub = tx.add_subparsers(dest="action", metavar="ACTION", required=True)
+    imp = tx_sub.add_parser("import", help="import a month folder (or --start)")
+    which = imp.add_mutually_exclusive_group(required=True)
+    which.add_argument("month", nargs="?", help="month as RRRR-MM, e.g. 2026-11")
+    which.add_argument("--start", action="store_true", help="import _start/ (full histories)")
+    imp.add_argument("--dry-run", action="store_true", help="parse and check only; write and move nothing")
+    imp.add_argument("--account", metavar="ID", help="only this account_id")
 
     for name, help_text in NOT_IMPLEMENTED.items():
         sub.add_parser(name, help=help_text, description=help_text)
@@ -181,6 +194,48 @@ def _cmd_anonymize(args: argparse.Namespace) -> int:
     return status
 
 
+def _cmd_transactions(args: argparse.Namespace) -> int:
+    from gw2kcop.transactions.formats import builtin_specs
+    from gw2kcop.transactions.importer import import_folder
+    from gw2kcop.transactions.reference import load_reference
+
+    config = load_config(args.config)
+    accounts = load_accounts(config.accounts_file)
+    reference = load_reference(config.data_dir)
+    results, notes = import_folder(config, accounts, builtin_specs(), reference,
+                                   None if args.start else args.month, dry_run=args.dry_run,
+                                   only_account=args.account)
+    status = OK
+    missing: dict[str, set[str]] = {}
+    for r in results:
+        name = f"{r.account_id}/{r.path.name}"
+        if r.status == "error":
+            status = ERROR
+            print(f"! {name}: NOT imported ({r.format or 'unknown type'})")
+            for line in r.message.splitlines():
+                print(f"    {line}")
+            if r.missing_aliases:
+                institution = next(a.institution for a in accounts if a.account_id == r.account_id)
+                missing.setdefault(institution, set()).update(r.missing_aliases)
+                print(f"    unknown instruments: {', '.join(r.missing_aliases)}")
+        else:
+            verb = "would add" if r.status == "checked" else "added"
+            print(f"  {name}: {verb} {r.added}, already known {r.skipped} ({r.format})")
+    for note in notes:
+        print(f"  - {note}")
+    if missing:
+        print("\nAdd these lines to instrument_aliases.csv (institution,alias,ticker), "
+              "with the ticker from instruments.csv:")
+        for institution, aliases in sorted(missing.items()):
+            for alias in sorted(aliases):
+                print(f"  {institution},{alias},<ticker>")
+    if not results:
+        print("No export files found to import.")
+    elif args.dry_run:
+        print("Dry run: nothing was written or moved.")
+    return status
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -194,6 +249,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _cmd_prepare(args)
         if args.command == "anonymize":
             return _cmd_anonymize(args)
+        if args.command == "transactions":
+            return _cmd_transactions(args)
     except (ConfigError, AccountsError, ValueError) as exc:
         print(f"gw2kcop {args.command}: {exc}", file=sys.stderr)
         return ERROR

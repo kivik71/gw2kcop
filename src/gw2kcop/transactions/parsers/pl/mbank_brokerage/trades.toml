@@ -1,0 +1,37 @@
+# mBank eMakler / mDM: "Historia transakcji <ts>.csv"
+# Format notes: research/formats/broker-a-samples-2026-10.md (samples 2026-10 and 2026-11).
+# UTF-8 with BOM, CRLF, ';', decimal comma, one header row, no transaction id.
+format = "mbank_brokerage.trades"
+institution = "mbank_brokerage"
+kind = "trades"
+delimiter = ";"
+decimal = ","
+timezone = "Europe/Warsaw"
+datetime_format = "DD.MM.YYYY HH:MM:SS"
+header = ["Walor", "Giełda", "K/S", "Liczba", "Kurs", "Waluta", "Wartość", "Prowizja",
+          "Czas transakcji", "Waluta rozliczenia", "Kurs Przewalutowania"]
+
+[columns]
+instrument = "Walor"          # broker short name -> instrument_aliases.csv
+market = "Giełda"
+side = "K/S"
+quantity = "Liczba"           # always positive in the export
+price = "Kurs"                # in the instrument currency
+price_currency = "Waluta"
+gross = "Wartość"             # in the settlement currency, before fee
+fee = "Prowizja"
+time = "Czas transakcji"
+currency = "Waluta rozliczenia"
+fx_rate = "Kurs Przewalutowania"
+
+[sides]
+"Kupno" = "buy"
+"Sprzedaż" = "sell"
+
+[checks]
+# Verified on all 64 sample rows: Wartość = Liczba x Kurs x Kurs Przewalutowania.
+gross_equals_qty_price_fx = true
+# Fee currency = settlement currency (owner, 2026-11-11): without conversion the
+# fee is in the trade currency (= settlement); on IKE/IKZE, where the broker converts
+# PLN to the trade currency, the fee is charged in PLN (= settlement).
+fee_only_same_currency = false

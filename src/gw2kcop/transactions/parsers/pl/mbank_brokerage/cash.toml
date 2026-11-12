@@ -1,0 +1,63 @@
+# mBank eMakler / mDM: "Historia operacji finansowych <ts>.csv"
+# Format notes: research/formats/broker-a-samples-2026-10.md.
+# No currency column: the account currency from accounts.csv is used.
+# Trades are NOT in this file (their cash effect comes from "Historia transakcji").
+format = "mbank_brokerage.cash"
+institution = "mbank_brokerage"
+kind = "cash"
+delimiter = ";"
+decimal = ","
+timezone = "Europe/Warsaw"
+datetime_format = "DD.MM.YYYY HH:MM:SS"
+date_only = true              # time is always 00:00:00
+currency = "account"
+header = ["Data księgowania", "Typ operacji", "Opis", "Kwota", "Saldo początkowe", "Saldo końcowe"]
+
+[columns]
+date = "Data księgowania"
+direction = "Typ operacji"
+description = "Opis"
+amount = "Kwota"
+balance_before = "Saldo początkowe"
+balance_after = "Saldo końcowe"
+
+[directions]
+"Uznania" = "credit"
+"Obciążenia" = "debit"
+
+[checks]
+balance_chain = true          # Saldo początkowe + Kwota = Saldo końcowe on every row
+
+# First matching rule wins. Anything not matched stops the import of the file.
+[[rules]]
+pattern = '^Dywidenda: DP: (?P<dp>\S+) (?P<isin>[A-Z]{2}[A-Z0-9]{9}[0-9]) \('
+direction = "credit"
+type = "dividend"
+group = "div:{isin}:{dp}"
+
+[[rules]]
+pattern = '^Dywidenda z \S+ PW: (?P<isin>[A-Z]{2}[A-Z0-9]{9}[0-9]) DP: (?P<dp>\S+)'
+direction = "credit"
+type = "dividend"
+group = "div:{isin}:{dp}"
+
+[[rules]]
+pattern = '^Podatek od dywidendy: DP: (?P<dp>\S+) (?P<isin>[A-Z]{2}[A-Z0-9]{9}[0-9])'
+direction = "debit"
+type = "tax"
+group = "div:{isin}:{dp}"
+
+[[rules]]
+pattern = '^Opłata za prowadzenie rachunku'
+direction = "debit"
+type = "charge"
+
+[[rules]]
+pattern = '^Przelew na rachunek bankowy'
+direction = "debit"
+type = "withdrawal"           # internal transfers are recognised later (plan 2.4)
+
+[[rules]]
+pattern = '.'
+direction = "credit"
+type = "deposit"              # free-text deposit titles; internal transfers: plan 2.4

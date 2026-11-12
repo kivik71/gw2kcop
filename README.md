@@ -3,7 +3,7 @@
 
 **Parsers for (Polish) bank and broker exports to a common transactions CSV**
 
-> Status: early development. `config`, `prepare` and `anonymize` (CSV) work; the other commands are not implemented yet.
+> Status: early development. `config`, `prepare`, `anonymize` (CSV) and `transactions import` (mBank brokerage) work; the other commands are not implemented yet.
 
 ## What it does
 `gw2kcop` reads the files you download from your bank or broker and turns them into one
@@ -15,7 +15,7 @@ never stores passwords.
 |---|---|
 | `gw2kcop config init` | create the configuration file (paths, time zone) |
 | `gw2kcop prepare RRRR-MM` | create export folders for a month: `RRRR-MM/<account_id>/` (`--start` for full histories) |
-| `gw2kcop transactions` | parse exports, deduplicate, append new rows to `transactions.csv` |
+| `gw2kcop transactions import RRRR-MM` | parse a month's exports, deduplicate, append new rows to `transactions.csv` (`--dry-run` to check only) |
 | `gw2kcop fx` | download NBP exchange rates |
 | `gw2kcop prices` | download daily closing prices (optional Yahoo adapter) |
 | `gw2kcop anonymize PATH` | make an anonymized sample from a real CSV export (`--check` to scan a sample) |
@@ -25,7 +25,12 @@ never stores passwords.
 gw2kcop config init      # creates the config file; prints where it is
 gw2kcop config show      # check paths and time zone
 gw2kcop prepare 2026-11  # one folder per active account in accounts.csv
+# put each export in its account folder, then:
+gw2kcop transactions import 2026-11 --dry-run   # check, write nothing
+gw2kcop transactions import 2026-11             # import; done files move to _zaimportowane/
 ```
+Instruments are matched through `<data>/instrument_aliases.csv` (`institution,alias,ticker`);
+an unknown alias stops that file and the command prints the lines to add.
 Times: each transaction keeps `timestamp_utc` when the export has a time, and a local
 `date` in the configured `timezone` (default `Europe/Warsaw`), used for monthly reports.
 
@@ -52,7 +57,7 @@ Complex formats get Python code.
 
 | Institution | Export | Approach |
 |---|---|---|
-| mBank eMakler / mDM | transaction, cash and valuation history (CSV) | TOML |
+| mBank eMakler / mDM | transaction and cash history (CSV); valuation history planned | TOML, **works** |
 | Erste Brokerage (PL) | trade report, cash and securities history (CSV) | TOML |
 | Bossa | `financeHistory.csv` | TOML |
 | PPK ING | transaction history (CSV) | TOML |

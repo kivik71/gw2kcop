@@ -113,6 +113,13 @@ def _cmd_prepare(args: argparse.Namespace) -> int:
     return OK
 
 
+def _csv_files(source: Path) -> list[Path]:
+    """CSV files in a folder, any letter case (mBank eMakler writes ``.Csv``)."""
+    if not source.is_dir():
+        return [source]
+    return sorted(p for p in source.iterdir() if p.is_file() and p.suffix.lower() == ".csv")
+
+
 def _anonymizer_dir(args: argparse.Namespace, config) -> Path:
     if args.mapping_dir:
         return Path(args.mapping_dir).expanduser()
@@ -137,7 +144,7 @@ def _cmd_anonymize(args: argparse.Namespace) -> int:
     source = Path(args.path).expanduser()
 
     if args.check:
-        samples = sorted(source.glob("*.csv")) if source.is_dir() else [source]
+        samples = _csv_files(source)
         if not samples:
             raise ValueError(f"no .csv files in {source}")
         status = OK
@@ -162,7 +169,7 @@ def _cmd_anonymize(args: argparse.Namespace) -> int:
         output_dir = config.samples_dir
     else:
         raise ConfigError("set paths.samples in the config file or pass --output")
-    files = sorted(source.glob("*.csv")) if source.is_dir() else [source]
+    files = _csv_files(source)
     skipped = sorted(p.name for p in source.iterdir() if p.is_file() and p.suffix.lower() != ".csv") if source.is_dir() else []
     if not files:
         raise ValueError(f"no .csv files in {source}")

@@ -1,0 +1,40 @@
+# mBank eMakler (older web service, e.g. IKZE): "eMAKLER_historia_transakcji <year>.Csv"
+# Format notes: research/formats/broker-a-samples-2026-10.md, section "eMakler" (sample 2026-11-12).
+# Windows-1250, LF, ';', decimal comma, space as thousands separator.
+# About 30 lines of free text (bank address, name, account number, search criteria)
+# precede the header. "Waluta" appears three times: price, fee and value currency.
+# No transaction id and no exchange rate column.
+format = "mbank_brokerage.emakler_trades"
+institution = "mbank_brokerage"
+kind = "trades"
+delimiter = ";"
+decimal = ","
+timezone = "Europe/Warsaw"    # assumed as in mDM; not stated in the file
+datetime_format = "DD.MM.YYYY HH:MM:SS"
+preamble = true
+header = ["Czas transakcji", "Papier", "Giełda", "K/S", "Liczba", "Kurs", "Waluta",
+          "Prowizja", "Waluta", "Wartość", "Waluta"]
+
+[columns]
+time = "Czas transakcji"
+instrument = "Papier"         # broker short name -> instrument_aliases.csv
+market = "Giełda"             # e.g. WWA-GPW, DEU-XETRA
+side = "K/S"
+quantity = "Liczba"
+price = "Kurs"                # in the instrument currency
+price_currency = "Waluta[1]"
+fee = "Prowizja"
+fee_currency = "Waluta[2]"    # must equal the settlement currency, else the file stops
+gross = "Wartość"             # in the settlement currency, before fee
+currency = "Waluta[3]"
+
+[sides]
+"K" = "buy"
+"S" = "sell"
+
+[checks]
+# Checked only where price and value currency are equal (no rate column for the others).
+# Sample: Wartość = Liczba x Kurs; the cash history matches Wartość + fee (buy) and
+# Wartość - fee (sell), so Wartość is before fee.
+gross_equals_qty_price_fx = true
+fee_only_same_currency = false

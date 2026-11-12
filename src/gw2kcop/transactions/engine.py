@@ -16,7 +16,7 @@ from zoneinfo import ZoneInfo
 from gw2kcop.accounts import Account
 from gw2kcop.io.dates import DATE_FORMATS, parse_date, parse_datetime
 from gw2kcop.io.numbers import parse_decimal, parse_optional_decimal
-from gw2kcop.transactions.formats import FormatSpec
+from gw2kcop.transactions.formats import FormatSpec, clean_header
 from gw2kcop.transactions.master import Transaction
 from gw2kcop.transactions.reference import Reference
 
@@ -50,8 +50,15 @@ class _Ctx:
 
 
 def read_rows(text: str, spec: FormatSpec) -> list[tuple[int, dict[str, str], str]]:
-    """Data rows as ``(line number, {column: value}, raw line)``; header checked by caller."""
+    """Data rows as ``(line number, {column key: value}, raw line)``.
+
+    The header must be the first non-empty row, or, if the format has a preamble,
+    any row; rows before it are not read. Values are keyed by ``spec.keys``.
+    """
+    text = text.removeprefix("\ufeff")  # BOM left in by a caller that did not use read_text
     reader = csv.reader(io.StringIO(text, newline=""), delimiter=spec.delimiter)
+    width = len(spec.header)
+    overflow = spec.keys.index(spec.overflow_column) if spec.overflow_column else None
     out = []
     header_seen = False
     for row in reader:
@@ -59,14 +66,24 @@ def read_rows(text: str, spec: FormatSpec) -> list[tuple[int, dict[str, str], st
         if not any(cell.strip() for cell in row):
             continue
         if not header_seen:
-            header_seen = True
+            if clean_header(row) == spec.header:
+                header_seen = True
+            elif not spec.preamble:
+                raise ParseError([f"line {n}: header does not match {spec.name}"], [])
             continue
         cells = [c.strip() for c in row]
-        while len(cells) > len(spec.header) and not cells[-1]:
+        while len(cells) > width and not cells[-1]:
             cells.pop()
-        if len(cells) != len(spec.header):
-            raise ParseError([f"line {n}: expected {len(spec.header)} columns, got {len(cells)}"], [])
-        out.append((n, dict(zip(spec.header, cells)), spec.delimiter.join(cells)))
+        if len(cells) > width and overflow is not None:
+            # The text column contains the delimiter unquoted: glue the extra cells back.
+            extra = len(cells) - width
+            joined = spec.delimiter.join(cells[overflow:overflow + extra + 1]).strip()
+            cells = cells[:overflow] + [joined] + cells[overflow + extra + 1:]
+        if len(cells) != width:
+            raise ParseError([f"line {n}: expected {width} columns, got {len(cells)}"], [])
+        out.append((n, dict(zip(spec.keys, cells)), spec.delimiter.join(cells)))
+    if not header_seen:
+        raise ParseError([f"header of {spec.name} not found"], [])
     return out
 
 
@@ -138,12 +155,16 @@ def _trades(ctx: _Ctx, rows) -> list[Transaction]:
         if qty <= 0 or price < 0 or gross < 0 or (fee is not None and fee < 0):
             ctx.fail(line, "quantity must be > 0 and price, value and fee >= 0 in this format")
             continue
-        if spec.checks.get("gross_equals_qty_price_fx"):
+        price_currency = row[cols["price_currency"]]
+        # Without a rate column a cross-currency value cannot be recomputed; it is taken as exported.
+        if spec.checks.get("gross_equals_qty_price_fx") and ("fx_rate" in cols or price_currency == currency):
             expected = qty * price * (fx if fx is not None else Decimal(1))
             if abs(expected - gross) > CENT:
                 ctx.fail(line, f"value {gross} != quantity x price x rate ({expected.quantize(CENT)})")
                 continue
-        price_currency = row[cols["price_currency"]]
+        if "fee_currency" in cols and row[cols["fee_currency"]] != currency:
+            ctx.fail(line, f"fee in {row[cols['fee_currency']]} on a trade settled in {currency}")
+            continue
         if fee and fee_same_only and price_currency != currency:
             ctx.fail(line, f"fee on a {price_currency} trade settled in {currency}: fee currency not confirmed")
             continue
@@ -156,7 +177,7 @@ def _trades(ctx: _Ctx, rows) -> list[Transaction]:
             date=day, timestamp_utc=moment, account_id=ctx.account.account_id,
             institution=spec.institution, type=side, instrument=ticker,
             isin=ctx.reference.isin_of(ticker), quantity=signed_qty, price=price,
-            price_currency=row[cols["price_currency"]], amount=amount, currency=currency,
+            price_currency=price_currency, amount=amount, currency=currency,
             fee=fee, description=raw.strip(),
         ))
     return out
@@ -166,18 +187,24 @@ def _cash(ctx: _Ctx, rows) -> list[Transaction]:
     spec, cols, out = ctx.spec, ctx.spec.columns, []
     for line, row, _raw in rows:
         before = len(ctx.errors)
-        direction = spec.directions.get(row[cols["direction"]])
-        if direction is None:
-            ctx.fail(line, f"unknown operation direction {row[cols['direction']]!r}")
-            continue
         amount = _num(ctx, row, "amount", line)
         day, moment = _moment(ctx, row[cols["date"]], line)
         currency = _currency(ctx, row, line)
         if len(ctx.errors) > before:
             continue
-        if (direction == "credit") != (amount > 0):
-            ctx.fail(line, f"{row[cols['direction']]} with amount {amount}")
+        if "direction" in cols:
+            direction = spec.directions.get(row[cols["direction"]])
+            if direction is None:
+                ctx.fail(line, f"unknown operation direction {row[cols['direction']]!r}")
+                continue
+            if (direction == "credit") != (amount > 0):
+                ctx.fail(line, f"{row[cols['direction']]} with amount {amount}")
+                continue
+        elif amount == 0:
+            ctx.fail(line, "amount 0: direction unknown")
             continue
+        else:
+            direction = "credit" if amount > 0 else "debit"
         if spec.checks.get("balance_chain"):
             b0 = _num(ctx, row, "balance_before", line)
             b1 = _num(ctx, row, "balance_after", line)
@@ -190,6 +217,8 @@ def _cash(ctx: _Ctx, rows) -> list[Transaction]:
         rule = next((r for r in spec.rules if r.direction in ("any", direction) and r.pattern.search(text)), None)
         if rule is None:
             ctx.fail(line, f"unknown operation text: {text[:80]!r}")
+            continue
+        if rule.type == "ignore":
             continue
         found = rule.pattern.search(text).groupdict()
         isin = found.get("isin") or ""

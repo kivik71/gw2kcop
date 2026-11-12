@@ -1,0 +1,65 @@
+# mBank eMakler (older web service, e.g. IKZE): "eMAKLER_historia_finansowa <year>.Csv"
+# Format notes: research/formats/broker-a-samples-2026-10.md, section "eMakler" (sample 2026-11-12).
+# Windows-1250, LF, ';', decimal comma, free-text preamble before the header.
+# No direction column (the sign of Kwota decides), no currency column (account currency),
+# no balance columns. Some descriptions end with an unquoted ';' (overflow_column).
+#
+# Trades are NOT imported from this file: the buy order blocks/unblocks and the
+# settlement rows (WYC ...) are the cash side of the trades in "Historia transakcji".
+# The sample showed that settlement nets all trades of a day (sale minus purchase),
+# so these rows cannot be matched one-to-one and are ignored here.
+format = "mbank_brokerage.emakler_cash"
+institution = "mbank_brokerage"
+kind = "cash"
+delimiter = ";"
+decimal = ","
+timezone = "Europe/Warsaw"    # assumed as in mDM; not stated in the file
+datetime_format = "DD.MM.YYYY HH:MM:SS"
+currency = "account"
+preamble = true
+overflow_column = "Opis"
+header = ["Data", "Opis", "Kwota"]
+
+[columns]
+date = "Data"
+description = "Opis"
+amount = "Kwota"
+
+# First matching rule wins. Anything not matched stops the import of the file.
+[[rules]]
+pattern = '^Dywidenda: DP: (?P<dp>\S+) (?P<isin>[A-Z]{2}[A-Z0-9]{9}[0-9]) \('
+direction = "credit"
+type = "dividend"
+group = "div:{isin}:{dp}"
+
+[[rules]]
+pattern = '^Dywidenda z \S+ PW: (?P<isin>[A-Z]{2}[A-Z0-9]{9}[0-9]) DP: (?P<dp>\S+) '
+direction = "credit"
+type = "dividend"             # amount after foreign withholding tax ("stawka pod.")
+group = "div:{isin}:{dp}"
+
+[[rules]]
+pattern = '^WYC: \d+ NOT: \d+ ZLC: \d+ PW: [A-Z]{2}[A-Z0-9]{9}[0-9]$'
+type = "ignore"               # trade settlement, netted per day: comes from Historia transakcji
+
+[[rules]]
+pattern = '^Blokada środków pod zlecenie kupna nr \d+$'
+direction = "debit"
+type = "ignore"               # cash blocked for a buy order: comes from Historia transakcji
+
+[[rules]]
+pattern = '^Odblokowanie środków pod zlecenie nr \d+ \((całkowita realizacja|anulowania decyzją klienta)\)$'
+direction = "credit"
+type = "ignore"               # unused part of a block returned
+
+[[rules]]
+pattern = '^WYC\.BK: \d+ POZ: \d+ '
+direction = "credit"
+type = "deposit"              # transfer from a bank account; internal transfers: plan 2.4
+
+# Deposit titles are free text. Broker wording not listed above must not end up here
+# as a deposit, so texts starting with typical broker words stop the import instead.
+[[rules]]
+pattern = '^(?!(?:Odblokowanie|Blokada|WYC|Dywidenda|Podatek|Opłata|Prowizja|Odsetki|Zwrot|Korekta)\b).'
+direction = "credit"
+type = "deposit"              # free-text deposit titles; internal transfers: plan 2.4

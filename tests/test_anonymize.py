@@ -260,3 +260,16 @@ def test_kept_quantity_cells_are_not_treated_as_ids():
     out, report = anonymize_bytes(rows.encode(), None, Mapping(b"k" * 32), [], opts())
     assert report.kept_quantity_columns == ["Liczba jednostek"]
     assert "1234567,500000" in out.decode()
+
+
+def test_cli_folder_accepts_upper_case_suffix(tmp_path, capsys):
+    src = tmp_path / "in"
+    src.mkdir()
+    (src / "eMAKLER_historia.Csv").write_bytes(build_cash_history())
+    anon, out = tmp_path / "anon", tmp_path / "out"
+    anon.mkdir()
+    cfg = ["--config", str(tmp_path / "none.toml")]
+    assert main([*cfg, "anonymize", str(src), "--mapping-dir", str(anon), "--output", str(out)]) == 0
+    assert (out / "eMAKLER_historia.Csv").is_file()
+    assert main([*cfg, "anonymize", "--check", str(out), "--mapping-dir", str(anon)]) == 0
+    assert "eMAKLER_historia.Csv: no identifiers found" in capsys.readouterr().out

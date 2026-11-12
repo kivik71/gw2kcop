@@ -48,7 +48,10 @@ direction = "debit"
 type = "ignore"               # cash blocked for a buy order: comes from Historia transakcji
 
 [[rules]]
-pattern = '^Odblokowanie środków pod zlecenie nr \d+ \((całkowita realizacja|anulowania decyzją klienta)\)$'
+# Any reason in brackets: seen "całkowita realizacja", "anulowania decyzją klienta",
+# "unieważnienie przez PMPLUS". Blocks and unblocks are both ignored, so the reason does
+# not change any amount.
+pattern = '^Odblokowanie środków pod zlecenie nr \d+ \([^()]+\)$'
 direction = "credit"
 type = "ignore"               # unused part of a block returned
 

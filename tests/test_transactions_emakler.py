@@ -35,6 +35,7 @@ CASH = "\n".join([*PREAMBLE, "", CASH_HEADER,
     "stawka pod.: 27% kurs przewalutowania: 0.5 |DVCA1;83,64",
     "22.06.2026 12:16:41;WYC: 1 NOT: 2 ZLC: 3 PW: PLTEST000016;507,43",
     "16.06.2026 15:07:17;Odblokowanie środków pod zlecenie nr 9 (całkowita realizacja);93,50",
+    "16.06.2026 15:07:17;Odblokowanie środków pod zlecenie nr 8 (unieważnienie przez PMPLUS);10,00",
     "16.06.2026 15:05:18;Blokada środków pod zlecenie kupna nr 9;-4 751,68",
     "31.05.2026 23:37:18;IKZE WPŁATA                         ;804,00",
     "04.05.2026 07:06:05;WYC.BK: 1 POZ: 2 IKZE WPŁATA;5 000,00",
@@ -87,7 +88,7 @@ def test_cash_rules_overflow_and_ignored_rows():
 
 
 @pytest.mark.parametrize("line", [
-    "16.06.2026 15:07:17;Odblokowanie środków pod zlecenie nr 9 (inny powód);93,50",
+    "16.06.2026 15:07:17;Odblokowanie środków pod zlecenie nr 9;93,50",
     "16.06.2026 15:05:18;Blokada środków pod zlecenie sprzedaży nr 9;-1,00",
     "16.06.2026 15:05:18;Nieznana opłata;-1,00",
 ])

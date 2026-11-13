@@ -18,7 +18,7 @@ from pathlib import Path
 from gw2kcop.accounts import Account
 from gw2kcop.config import Config
 from gw2kcop.io.text import read_text
-from gw2kcop.transactions import master, valuations
+from gw2kcop.transactions import master, valuations, xtb
 from gw2kcop.transactions.engine import ParseError, parse_export
 from gw2kcop.transactions.formats import FormatSpec, detect
 from gw2kcop.transactions.reference import Reference
@@ -74,6 +74,35 @@ def _move_done(path: Path) -> Path:
         n += 1
     path.rename(target)
     return target
+
+
+# Institutions parsed in code (not TOML): file suffix and format name shown to the user.
+CODE_PARSERS = {xtb.INSTITUTION: (".xlsx", "xtb.statement")}
+
+
+def import_code_file(path: Path, account: Account, reference: Reference, config: Config,
+                     dry_run: bool) -> FileResult:
+    """A file of an institution parsed in code (today: XTB statements)."""
+    result = FileResult(path=path, account_id=account.account_id, status="error",
+                        format=CODE_PARSERS[account.institution][1])
+    try:
+        txs, notes = xtb.parse_statement(path, account, reference, config.timezone)
+        result.note = "; ".join(notes)
+        if dry_run:
+            result.added, result.skipped = master.count_new(config.data_dir, txs)
+            result.status = "checked"
+            return result
+        merged = master.merge(config.data_dir, txs, path.name)
+    except ParseError as exc:
+        result.message = "\n".join(exc.errors[:30])
+        result.missing_aliases = exc.missing_aliases
+        return result
+    except master.TransactionsError as exc:
+        result.message = str(exc)
+        return result
+    result.added, result.skipped, result.status = merged.added, merged.skipped, "imported"
+    result.moved_to = _move_done(path)
+    return result
 
 
 def import_file(path: Path, account: Account, specs: list[FormatSpec], reference: Reference,
@@ -164,6 +193,14 @@ def import_folder(config: Config, accounts: list[Account], specs: list[FormatSpe
         files = sorted(p for p in entry.iterdir() if p.is_file() and not p.name.startswith("."))
         if account.import_method != "parser":
             continue  # manual accounts: pastes and PDFs are handled outside the importer
+        if account.institution in CODE_PARSERS:
+            suffix = CODE_PARSERS[account.institution][0]
+            for path in files:
+                if path.suffix.lower() != suffix:
+                    notes.append(f"{entry.name}/{path.name}: only {suffix} is supported for this account, not imported")
+                    continue
+                results.append(import_code_file(path, account, reference, config, dry_run))
+            continue
         if not any(s.institution == account.institution for s in specs):
             if files:
                 notes.append(f"{entry.name}/: no parser yet for {account.institution}, {len(files)} file(s) left")

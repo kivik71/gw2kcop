@@ -10,7 +10,7 @@ from __future__ import annotations
 import csv
 import io
 from dataclasses import dataclass, field
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from zoneinfo import ZoneInfo
 
 from gw2kcop.accounts import Account
@@ -213,6 +213,10 @@ def _cash(ctx: _Ctx, rows) -> list[Transaction]:
             if b0 + amount != b1:
                 ctx.fail(line, f"balance check failed: {b0} + {amount} != {b1}")
                 continue
+        if "account" in cols and ctx.account.export_identifier \
+                and row[cols["account"]] != ctx.account.export_identifier:
+            ctx.fail(line, "the account in the file is not this account's export_identifier")
+            continue
         text = row[cols["description"]]
         rule = next((r for r in spec.rules if r.direction in ("any", direction) and r.pattern.search(text)), None)
         if rule is None:
@@ -222,7 +226,17 @@ def _cash(ctx: _Ctx, rows) -> list[Transaction]:
             continue
         found = rule.pattern.search(text).groupdict()
         isin = found.get("isin") or ""
-        ticker = _instrument(ctx, isin) if isin else ""
+        alias = found.get("alias") or ""
+        if isin:
+            ticker = _instrument(ctx, isin)
+        elif alias:
+            ticker = _instrument(ctx, alias)
+            isin = ctx.reference.isin_of(ticker)
+        else:
+            ticker = ""
+        trade = _trade_fields(ctx, rule.type, found, amount, currency, line) if rule.type in ("buy", "sell") else {}
+        if trade is None:
+            continue
         group = ""
         if rule.group:
             try:
@@ -233,9 +247,33 @@ def _cash(ctx: _Ctx, rows) -> list[Transaction]:
         out.append(Transaction(
             date=day, timestamp_utc=moment, account_id=ctx.account.account_id,
             institution=spec.institution, type=rule.type, instrument=ticker, isin=isin,
-            amount=amount, currency=currency, description=text, group_id=group,
+            amount=amount, currency=currency, description=text, group_id=group, **trade,
         ))
     return out
+
+
+def _trade_fields(ctx: _Ctx, side: str, found: dict, amount: Decimal, currency: str, line: int) -> dict | None:
+    """Quantity, price and fee of a trade settlement row; the fee is what the
+    settlement holds beyond quantity x price (rounded to cents)."""
+    try:
+        qty, price = Decimal(found["quantity"]), Decimal(found["price"])
+    except InvalidOperation:
+        ctx.fail(line, f"quantity or price is not a number: {found['quantity']!r}, {found['price']!r}")
+        return None
+    price_currency = found.get("price_currency") or currency
+    if qty <= 0 or price < 0:
+        ctx.fail(line, "quantity must be > 0 and price >= 0")
+        return None
+    if price_currency != currency:
+        ctx.fail(line, f"price in {price_currency}, settlement in {currency}: not supported without a sample")
+        return None
+    gross = (qty * price).quantize(CENT, rounding=ROUND_HALF_UP)
+    fee = -amount - gross if side == "buy" else gross - amount
+    if fee < 0:
+        ctx.fail(line, f"settlement {amount} is better than quantity x price ({gross}): fee would be negative")
+        return None
+    return {"quantity": qty if side == "buy" else -qty, "price": price,
+            "price_currency": price_currency, "fee": fee}
 
 
 def parse_export(text: str, spec: FormatSpec, account: Account, reference: Reference,

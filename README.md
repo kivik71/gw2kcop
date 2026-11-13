@@ -61,7 +61,7 @@ Complex formats get Python code.
 | Erste Brokerage (PL) | trade report, cash and securities history (CSV) | TOML |
 | Bossa | `financeHistory.csv` | TOML |
 | PPK ING | transaction history (CSV) | TOML |
-| XTB | account statement (XLSX) | code |
+| XTB | account statement (XLSX), or the multi-account ZIP dropped into the month folder (each statement goes to the account whose `export_identifier` is its account number) | code, **works** (no sales yet) |
 | PPK Nationale-Nederlanden | transaction history (XLS) | code |
 
 ## Install (development)

@@ -7,6 +7,7 @@ instead of doing anything partial.
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -227,14 +228,16 @@ def _cmd_transactions(args: argparse.Namespace) -> int:
     status = OK
     missing: dict[str, set[str]] = {}
     for r in results:
-        name = f"{r.account_id}/{r.path.name}"
+        # Long digit runs are account numbers (XTB file names): never print them.
+        shown = f"{r.path.name}:{r.member.rsplit('/', 1)[-1]}" if r.member else r.path.name
+        name = f"{r.account_id}/{re.sub(r'[0-9]{6,}', '…', shown)}"
         if r.status == "error":
             status = ERROR
             print(f"! {name}: NOT imported ({r.format or 'unknown type'})")
             for line in r.message.splitlines():
                 print(f"    {line}")
             if r.missing_aliases:
-                institution = next(a.institution for a in accounts if a.account_id == r.account_id)
+                institution = next((a.institution for a in accounts if a.account_id == r.account_id), "?")
                 missing.setdefault(institution, set()).update(r.missing_aliases)
                 print(f"    unknown instruments: {', '.join(r.missing_aliases)}")
         else:

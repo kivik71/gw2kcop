@@ -18,7 +18,7 @@ from pathlib import Path
 
 from gw2kcop.io.dates import DATE_FORMATS, DATETIME_FORMATS
 
-KINDS = ("trades", "cash")
+KINDS = ("trades", "cash", "valuations")
 _TOP_KEYS = {
     "format", "institution", "kind", "delimiter", "decimal", "header", "timezone",
     "datetime_format", "date_only", "currency", "columns", "sides", "directions",
@@ -28,10 +28,12 @@ _COLUMN_KEYS = {
     "trades": {"instrument", "market", "side", "quantity", "price", "price_currency",
                "gross", "fee", "fee_currency", "time", "currency", "fx_rate"},
     "cash": {"date", "direction", "description", "amount", "balance_before", "balance_after"},
+    "valuations": {"date", "value"},
 }
 _REQUIRED_COLUMNS = {
     "trades": {"instrument", "side", "quantity", "price", "price_currency", "gross", "time", "currency"},
     "cash": {"date", "description", "amount"},  # no direction column: the sign of amount decides
+    "valuations": {"date", "value"},
 }
 _CHECK_KEYS = {"gross_equals_qty_price_fx", "fee_only_same_currency", "balance_chain"}
 _RULE_KEYS = {"pattern", "direction", "type", "group"}
@@ -120,7 +122,11 @@ def parse_spec(data: dict, where: str) -> FormatSpec:
     checks = dict(data.get("checks") or {})
     _require(not set(checks) - _CHECK_KEYS, where, f"unknown checks {sorted(set(checks) - _CHECK_KEYS)}")
     currency = data.get("currency", "column")
-    _require(currency in ("column", "account"), where, "currency must be 'column' or 'account'")
+    if kind == "valuations":
+        # broker_valuations.csv holds value_pln only: the format must state PLN explicitly
+        _require(currency == "PLN", where, "valuations need currency = 'PLN'")
+    else:
+        _require(currency in ("column", "account"), where, "currency must be 'column' or 'account'")
     if kind == "trades":
         sides = dict(data.get("sides") or {})
         _require(sides and set(sides.values()) <= {"buy", "sell"}, where, "sides must map to buy/sell")

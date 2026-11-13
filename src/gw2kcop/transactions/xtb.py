@@ -18,6 +18,7 @@ Fail closed, like the TOML engine:
 from __future__ import annotations
 
 import re
+import warnings
 from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -88,7 +89,10 @@ def _load(path: Path):
     import openpyxl  # optional dependency path: only XTB needs it
 
     try:
-        return openpyxl.load_workbook(path, data_only=True)
+        with warnings.catch_warnings():
+            # XTB files have no default cell style; openpyxl warns, the data is unaffected.
+            warnings.filterwarnings("ignore", message="Workbook contains no default style")
+            return openpyxl.load_workbook(path, data_only=True)
     except Exception as exc:  # zip/xml errors: not an XLSX we can read
         raise ParseError([f"cannot read as .xlsx: {exc}"], []) from None
 

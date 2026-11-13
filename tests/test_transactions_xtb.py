@@ -144,3 +144,81 @@ def test_import_command(tmp_path, capsys):
     rows = list(csv.DictReader(io.StringIO((data / "transactions.csv").read_text(encoding="utf-8"))))
     assert rows[0]["key"] == "xtb|TOM-TEST-USD|1001"
     assert (folder / "_zaimportowane" / f"USD_{NUMBER}_2026-01-01_2026-11-03.xlsx").exists()
+
+
+def _zip_setup(tmp_path, numbers=(NUMBER,)):
+    """Config + accounts for one USD account per number; returns (cfg, data, month folder)."""
+    data, exports = tmp_path / "Dane", tmp_path / "Eksporty"
+    cfg = tmp_path / "config.toml"
+    cfg.write_text(f'timezone = "Europe/Warsaw"\n[paths]\nexports = "{exports.as_posix()}"\n'
+                   f'data = "{data.as_posix()}"\naccounts = "{(data / "accounts.csv").as_posix()}"\n',
+                   encoding="utf-8")
+    data.mkdir()
+    rows = "".join(f"TOM-TEST-{i},xtb,tom,{n},Test {i},brokerage,USD,TRUE,parser\n" for i, n in enumerate(numbers))
+    (data / "accounts.csv").write_text(
+        "account_id,institution,owner,export_identifier,name,account_type,currency,active,import_method\n" + rows,
+        encoding="utf-8")
+    (data / "instruments.csv").write_text("ticker,name,isin\nNYSE:TEST,Test,US0000000001\n", encoding="utf-8")
+    (data / "instrument_aliases.csv").write_text("institution,alias,ticker\nxtb,TEST.US,NYSE:TEST\n", encoding="utf-8")
+    month = exports / "2026-11"
+    month.mkdir(parents=True)
+    return cfg, data, month
+
+
+def _zip(path, tmp_path, members):
+    """members: {name in zip: account number in the statement}."""
+    import zipfile
+
+    with zipfile.ZipFile(path, "w") as zf:
+        for i, (name, number) in enumerate(members.items()):
+            src = build(tmp_path / f"m{i}.xlsx", number=number)
+            zf.write(src, name)
+    return path
+
+
+def test_zip_import(tmp_path, capsys):
+    second = "00000003"
+    cfg, data, month = _zip_setup(tmp_path, (NUMBER, second))
+    _zip(month / "statements_1234567890.zip", tmp_path, {
+        f"{NUMBER}/USD_{NUMBER}_2026-01-01_2026-11-03.xlsx": NUMBER,
+        f"{second}/USD_{second}_2026-01-01_2026-11-03.xlsx": second})
+    assert main(["--config", str(cfg), "transactions", "import", "2026-11", "--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert out.count("add 8,") == 2 and "1234567890" not in out and NUMBER not in out
+    assert (month / "statements_1234567890.zip").exists()
+    assert main(["--config", str(cfg), "transactions", "import", "2026-11"]) == 0
+    rows = list(csv.DictReader(io.StringIO((data / "transactions.csv").read_text(encoding="utf-8"))))
+    assert {r["account_id"] for r in rows} == {"TOM-TEST-0", "TOM-TEST-1"} and len(rows) == 16
+    assert (month / "_zaimportowane" / "statements_1234567890.zip").exists()
+    assert not (month / "statements_1234567890.zip").exists()
+
+
+@pytest.mark.parametrize("members, message", [
+    ({"00000009/USD_00000009.xlsx": "00000009"}, "no xtb account"),
+    ({f"00000009/USD_{NUMBER}.xlsx": NUMBER}, "folder name"),
+])
+def test_zip_problems_keep_the_zip(tmp_path, capsys, members, message):
+    cfg, data, month = _zip_setup(tmp_path)
+    _zip(month / "s.zip", tmp_path, members)
+    assert main(["--config", str(cfg), "transactions", "import", "2026-11"]) != 0
+    out = capsys.readouterr().out
+    assert message in out and "kept in place" in out
+    assert (month / "s.zip").exists() and not (data / "transactions.csv").exists()
+
+
+def test_zip_partial_import_keeps_the_zip(tmp_path, capsys):
+    second = "00000003"
+    cfg, data, month = _zip_setup(tmp_path, (NUMBER, second))
+    _zip(month / "s.zip", tmp_path, {f"{NUMBER}/a.xlsx": NUMBER, f"{second}/b.xlsx": second})
+    assert main(["--config", str(cfg), "transactions", "import", "2026-11", "--account", "TOM-TEST-0"]) == 0
+    out = capsys.readouterr().out
+    assert "kept in place" in out and (month / "s.zip").exists()
+    rows = list(csv.DictReader(io.StringIO((data / "transactions.csv").read_text(encoding="utf-8"))))
+    assert {r["account_id"] for r in rows} == {"TOM-TEST-0"}
+
+
+def test_zip_not_readable(tmp_path, capsys):
+    cfg, data, month = _zip_setup(tmp_path)
+    (month / "bad.zip").write_bytes(b"not a zip")
+    main(["--config", str(cfg), "transactions", "import", "2026-11"])
+    assert "cannot read the ZIP" in capsys.readouterr().out

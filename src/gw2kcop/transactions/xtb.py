@@ -85,14 +85,15 @@ def _trim(row: tuple) -> tuple:
     return tuple(cells)
 
 
-def _load(path: Path):
+def _load(source):
+    """``source``: a path, or a binary file object (a member read from a ZIP)."""
     import openpyxl  # optional dependency path: only XTB needs it
 
     try:
         with warnings.catch_warnings():
             # XTB files have no default cell style; openpyxl warns, the data is unaffected.
             warnings.filterwarnings("ignore", message="Workbook contains no default style")
-            return openpyxl.load_workbook(path, data_only=True)
+            return openpyxl.load_workbook(source, data_only=True)
     except Exception as exc:  # zip/xml errors: not an XLSX we can read
         raise ParseError([f"cannot read as .xlsx: {exc}"], []) from None
 
@@ -130,10 +131,24 @@ def _check_closed(wb, errors: list[str]) -> None:
                       "(send an anonymised sample with a sale)")
 
 
-def parse_statement(path: Path, account: Account, reference: Reference,
+def account_number(source) -> str:
+    """The account number in A1/B1 of "Cash Operations"; raises ``ParseError``."""
+    wb = _load(source)
+    if "Cash Operations" not in wb.sheetnames:
+        raise ParseError([f"not an XTB statement: sheets {wb.sheetnames}"], [])
+    first = _rows(wb["Cash Operations"])[0] if wb["Cash Operations"].max_row else ()
+    if len(first) < 2 or first[0] != "Account number" or not _text(first[1]):
+        raise ParseError(["Cash Operations: A1 is not 'Account number'"], [])
+    return _text(first[1])
+
+
+def parse_statement(source: Path, account: Account, reference: Reference,
                     local_tz: ZoneInfo) -> tuple[list[Transaction], list[str]]:
-    """Parse one XTB statement. Returns ``(transactions, notes)``; raises ``ParseError``."""
-    wb = _load(path)
+    """Parse one XTB statement (a path or a binary file object).
+
+    Returns ``(transactions, notes)``; raises ``ParseError``.
+    """
+    wb = _load(source)
     if tuple(wb.sheetnames) != SHEETS:
         raise ParseError([f"not an XTB statement: sheets {wb.sheetnames}"], [])
     errors: list[str] = []

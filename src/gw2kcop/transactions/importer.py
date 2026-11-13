@@ -18,7 +18,7 @@ from pathlib import Path
 from gw2kcop.accounts import Account
 from gw2kcop.config import Config
 from gw2kcop.io.text import read_text
-from gw2kcop.transactions import master
+from gw2kcop.transactions import master, valuations
 from gw2kcop.transactions.engine import ParseError, parse_export
 from gw2kcop.transactions.formats import FormatSpec, detect
 from gw2kcop.transactions.reference import Reference
@@ -38,6 +38,8 @@ class FileResult:
     message: str = ""
     missing_aliases: list[str] = field(default_factory=list)
     moved_to: Path | None = None
+    target: str = "transactions.csv"
+    note: str = ""
 
 
 PREAMBLE_MAX_ROWS = 60  # a header further down than this is not looked for
@@ -87,6 +89,8 @@ def import_file(path: Path, account: Account, specs: list[FormatSpec], reference
         result.message = f"unknown file type for {account.institution} (header not recognised)"
         return result
     result.format = spec.name
+    if spec.kind == "valuations":
+        return _import_valuations(path, text, spec, account, config, dry_run, result)
     try:
         txs = parse_export(text, spec, account, reference, config.timezone)
         if dry_run:
@@ -103,6 +107,30 @@ def import_file(path: Path, account: Account, specs: list[FormatSpec], reference
         return result
     result.added, result.skipped, result.status = merged.added, merged.skipped, "imported"
     result.moved_to = _move_done(path)
+    return result
+
+
+def _import_valuations(path: Path, text: str, spec: FormatSpec, account: Account, config: Config,
+                       dry_run: bool, result: FileResult) -> FileResult:
+    try:
+        parsed = valuations.parse_valuations(text, spec, account)
+        if dry_run:
+            result.added, result.skipped = valuations.count_new(config.data_dir, parsed.rows)
+            result.status = "checked"
+        else:
+            result.added, result.skipped = valuations.merge(config.data_dir, parsed.rows, path.name)
+            result.status = "imported"
+    except ParseError as exc:
+        result.message = "\n".join(exc.errors[:30])
+        return result
+    except master.TransactionsError as exc:
+        result.message = str(exc)
+        return result
+    result.target = valuations.FILE_NAME
+    if parsed.intraday_skipped:
+        result.note = f"{parsed.intraday_skipped} row(s) with today's time not stored (day not closed)"
+    if result.status == "imported":
+        result.moved_to = _move_done(path)
     return result
 
 

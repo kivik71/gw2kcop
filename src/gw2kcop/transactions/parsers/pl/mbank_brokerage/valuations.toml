@@ -1,0 +1,19 @@
+# mBank mDM: "Historia wycen <ts> <year>.csv"
+# Format notes: research/formats/broker-a-samples-2026-10.md, section 5 (samples 2026-11-13).
+# One row per calendar day (weekends repeat Friday), total account value in PLN.
+# Days before the account existed are 0. The last row of an export made today has the
+# export time instead of 00:00:00: it is not stored (see valuations.py).
+# Values have up to 8 decimals and are stored as exported.
+format = "mbank_brokerage.valuations"
+institution = "mbank_brokerage"
+kind = "valuations"
+delimiter = ";"
+decimal = ","
+timezone = "Europe/Warsaw"
+datetime_format = "DD.MM.YYYY HH:MM:SS"
+currency = "PLN"              # stated in the header: "Wycena całkowita PLN"
+header = ["Data", "Wycena całkowita PLN"]
+
+[columns]
+date = "Data"
+value = "Wycena całkowita PLN"

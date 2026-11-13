@@ -227,7 +227,10 @@ def _cmd_transactions(args: argparse.Namespace) -> int:
                 print(f"    unknown instruments: {', '.join(r.missing_aliases)}")
         else:
             verb = "would add" if r.status == "checked" else "added"
-            print(f"  {name}: {verb} {r.added}, already known {r.skipped} ({r.format})")
+            target = "" if r.target == "transactions.csv" else f" -> {r.target}"
+            print(f"  {name}: {verb} {r.added}, already known {r.skipped} ({r.format}{target})")
+            if r.note:
+                print(f"    {r.note}")
     for note in notes:
         print(f"  - {note}")
     if missing:

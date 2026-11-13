@@ -278,7 +278,18 @@ def import_folder(config: Config, accounts: list[Account], specs: list[FormatSpe
             continue
         account = by_id.get(entry.name)
         if account is None:
-            notes.append(f"{entry.name}/: no such account_id in accounts.csv, not imported")
+            zips = sorted(p for p in entry.iterdir() if p.is_file() and p.suffix.lower() == ".zip")
+            if not zips:
+                notes.append(f"{entry.name}/: no such account_id in accounts.csv, not imported")
+                continue
+            # A folder of multi-account ZIPs (e.g. TOM-XTB/): accounts come from the files.
+            for path in zips:
+                zip_results, zip_notes = import_zip(path, accounts, reference, config, dry_run, only_account)
+                results.extend(zip_results)
+                notes.extend(f"{entry.name}/{n}" for n in zip_notes)
+            for path in sorted(entry.iterdir()):
+                if path.is_file() and path.suffix.lower() != ".zip" and not path.name.startswith("."):
+                    notes.append(f"{entry.name}/{path.name}: not a ZIP and not in an account folder, not imported")
             continue
         if only_account and account.account_id != only_account:
             continue

@@ -26,3 +26,19 @@ def test_unknown_command_is_rejected():
     with pytest.raises(SystemExit) as exc:
         main(["unknown"])
     assert exc.value.code == 2
+
+
+def test_anonymize_missing_file_hints_at_imported_copy(tmp_path, capsys):
+    folder = tmp_path / "TOM-TEST"
+    (folder / "_zaimportowane").mkdir(parents=True)
+    (folder / "_zaimportowane" / "export.csv").write_text("a;b\n1;2\n", encoding="utf-8")
+    args = ["anonymize", str(folder / "export.csv"), "--mapping-dir", str(tmp_path / "map"),
+            "--output", str(tmp_path / "out")]
+    assert main(args) == 1
+    err = capsys.readouterr().err
+    assert "not found" in err and "_zaimportowane" in err and "Traceback" not in err
+
+
+def test_anonymize_missing_file_without_copy(tmp_path, capsys):
+    assert main(["anonymize", str(tmp_path / "none.csv"), "--check", "--mapping-dir", str(tmp_path)]) == 1
+    assert "not found" in capsys.readouterr().err

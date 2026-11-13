@@ -120,6 +120,17 @@ def _csv_files(source: Path) -> list[Path]:
     return sorted(p for p in source.iterdir() if p.is_file() and p.suffix.lower() == ".csv")
 
 
+def _require_exists(path: Path) -> None:
+    """Stop with a readable message (and a hint for imported files) if ``path`` is missing."""
+    if path.exists():
+        return
+    message = f"not found: {path}"
+    moved = path.parent / "_zaimportowane" / path.name
+    if moved.is_file():
+        message += f"\n  it was imported and moved to: {moved}"
+    raise ValueError(message)
+
+
 def _anonymizer_dir(args: argparse.Namespace, config) -> Path:
     if args.mapping_dir:
         return Path(args.mapping_dir).expanduser()
@@ -142,6 +153,7 @@ def _cmd_anonymize(args: argparse.Namespace) -> int:
     folder = _anonymizer_dir(args, config)
     mapping = load_mapping(folder)
     source = Path(args.path).expanduser()
+    _require_exists(source)
 
     if args.check:
         samples = _csv_files(source)
@@ -260,6 +272,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _cmd_transactions(args)
     except (ConfigError, AccountsError, ValueError) as exc:
         print(f"gw2kcop {args.command}: {exc}", file=sys.stderr)
+        return ERROR
+    except OSError as exc:  # missing file, no permission, ...: no traceback for the user
+        print(f"gw2kcop {args.command}: {exc.strerror or exc}: {exc.filename or ''}".rstrip(": "),
+              file=sys.stderr)
         return ERROR
     print(f"gw2kcop {args.command}: not implemented yet.", file=sys.stderr)
     return NOT_IMPLEMENTED_EXIT

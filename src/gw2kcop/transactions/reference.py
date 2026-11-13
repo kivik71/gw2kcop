@@ -42,7 +42,14 @@ def _rows(path: Path, required: tuple[str, ...]) -> list[dict[str, str]]:
     missing = [c for c in required if c not in header]
     if missing:
         raise ReferenceError(f"{path.name}: missing columns {', '.join(missing)}")
-    return [{(k or "").strip(): (v or "").strip() for k, v in row.items()} for row in reader]
+    rows = []
+    for row in reader:
+        if None in row:  # more values than columns: csv puts the rest under the key None
+            raise ReferenceError(
+                f"{path.name}:{reader.line_num}: {len(header) + len(row[None])} values but "
+                f"{len(header)} columns; a value with a comma must be in double quotes")
+        rows.append({(k or "").strip(): (v or "").strip() for k, v in row.items()})
+    return rows
 
 
 def load_reference(data_dir: Path) -> Reference:

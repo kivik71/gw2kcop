@@ -214,6 +214,11 @@ def _cmd_anonymize(args: argparse.Namespace) -> int:
     return status
 
 
+def _mask(text: str) -> str:
+    """Long digit runs are account numbers (XTB file names): never print them."""
+    return re.sub(r"[0-9]{6,}", "…", text)
+
+
 def _cmd_transactions(args: argparse.Namespace) -> int:
     from gw2kcop.transactions.formats import builtin_specs
     from gw2kcop.transactions.importer import import_folder
@@ -228,9 +233,8 @@ def _cmd_transactions(args: argparse.Namespace) -> int:
     status = OK
     missing: dict[str, set[str]] = {}
     for r in results:
-        # Long digit runs are account numbers (XTB file names): never print them.
         shown = f"{r.path.name}:{r.member.rsplit('/', 1)[-1]}" if r.member else r.path.name
-        name = f"{r.account_id}/{re.sub(r'[0-9]{6,}', '…', shown)}"
+        name = f"{r.account_id}/{_mask(shown)}"
         if r.status == "error":
             status = ERROR
             print(f"! {name}: NOT imported ({r.format or 'unknown type'})")
@@ -247,7 +251,7 @@ def _cmd_transactions(args: argparse.Namespace) -> int:
             if r.note:
                 print(f"    {r.note}")
     for note in notes:
-        print(f"  - {note}")
+        print(f"  - {_mask(note)}")
     if missing:
         print("\nAdd these lines to instrument_aliases.csv (institution,alias,ticker), "
               "with the ticker from instruments.csv:")

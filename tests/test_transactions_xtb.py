@@ -222,3 +222,23 @@ def test_zip_not_readable(tmp_path, capsys):
     (month / "bad.zip").write_bytes(b"not a zip")
     main(["--config", str(cfg), "transactions", "import", "2026-11"])
     assert "cannot read the ZIP" in capsys.readouterr().out
+
+
+def test_zip_in_its_own_folder(tmp_path, capsys):
+    cfg, data, month = _zip_setup(tmp_path)
+    folder = month / "TOM-XTB"
+    folder.mkdir()
+    _zip(folder / "s_1234567890.zip", tmp_path, {f"{NUMBER}/a.xlsx": NUMBER})
+    (folder / "readme.txt").write_text("x", encoding="utf-8")
+    assert main(["--config", str(cfg), "transactions", "import", "2026-11"]) == 0
+    out = capsys.readouterr().out
+    assert "TOM-TEST-0/s_….zip:a.xlsx: added 8" in out and "readme.txt: not a ZIP" in out
+    assert (folder / "_zaimportowane" / "s_1234567890.zip").exists()
+
+
+def test_zip_notes_are_masked(tmp_path, capsys):
+    cfg, data, month = _zip_setup(tmp_path)
+    _zip(month / "s_1234567890.zip", tmp_path, {"00000009/a.xlsx": "00000009"})
+    main(["--config", str(cfg), "transactions", "import", "2026-11"])
+    out = capsys.readouterr().out
+    assert "kept in place" in out and "1234567890" not in out

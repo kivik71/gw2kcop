@@ -57,7 +57,7 @@ COLUMNS = (
 TYPES = frozenset({
     "deposit", "withdrawal", "internal_transfer", "buy", "sell", "dividend", "interest",
     "fee", "tax", "charge", "fx_exchange", "expense", "income", "ppk_employee",
-    "ppk_employer", "ppk_state", "fund_switch", "other",
+    "ppk_employer", "ppk_state", "fund_switch", "other", "opening_balance",
 })
 NUMERIC_COLUMNS = frozenset({"quantity", "price", "amount", "fee"})
 LOG_COLUMNS = ("imported_at", "source_file", "account_id", "rows_in", "added", "skipped", "status", "message")
@@ -159,6 +159,13 @@ def validate(tx: Transaction) -> None:
             raise TransactionsError(f"{where}: {tx.type} needs a quantity")
         if (tx.type == "buy") != (tx.quantity > 0):
             raise TransactionsError(f"{where}: quantity sign does not match {tx.type}")
+    if tx.type == "opening_balance":
+        # A position (quantity at average cost, no cash effect) or cash at the start.
+        if tx.instrument:
+            if tx.quantity is None or tx.quantity <= 0 or tx.price is None or tx.amount != 0:
+                raise TransactionsError(f"{where}: an opening position needs quantity > 0, price and amount 0")
+        elif tx.quantity is not None or tx.price is not None or tx.amount == 0:
+            raise TransactionsError(f"{where}: opening cash needs an amount and no quantity or price")
     for name in ("amount", "quantity", "price", "fee"):
         value = getattr(tx, name)
         if value is not None and not value.is_finite():

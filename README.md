@@ -64,6 +64,13 @@ Complex formats get Python code.
 | XTB | account statement (XLSX), or the multi-account ZIP dropped into the month folder or a folder of its own such as `OWNA-XTB/` (each statement goes to the account whose `export_identifier` is its account number) | code, **works** (no sales yet) |
 | PPK Nationale-Nederlanden | transaction history (XLS) | code |
 
+## Opening balances
+Positions bought before the history an export can show (and cash at the start) go into
+`<data>/opening_balances.csv`, one row each, and are added with
+`gw2kcop transactions opening` (`--dry-run` checks only). See
+`src/gw2kcop/transactions/opening.py` for the columns. Rows get type `opening_balance`:
+a position has its quantity at average cost and amount 0; a cash row has only the amount.
+
 ## Install (development)
 Requires Python 3.11 or newer.
 

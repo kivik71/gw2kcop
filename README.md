@@ -3,7 +3,7 @@
 
 **Parsers for (Polish) bank and broker exports to a common transactions CSV**
 
-> Status: early development. `config`, `prepare`, `anonymize` (CSV) and `transactions import` (mBank brokerage) work; the other commands are not implemented yet.
+> Status: early development. `config`, `prepare`, `anonymize` (CSV), `transactions import` / `opening`, `fx` and `prices` work; more export formats are planned.
 
 ## What it does
 `gw2kcop` reads the files you download from your bank or broker and turns them into one
@@ -18,7 +18,8 @@ never stores passwords.
 | `gw2kcop transactions import RRRR-MM` | parse a month's exports, deduplicate, append new rows to `transactions.csv` (`--dry-run` to check only) |
 | `gw2kcop transactions opening` | add manual opening balances from `opening_balances.csv` |
 | `gw2kcop fx` | download NBP table A average rates (api.nbp.pl, no key) into `fx_rates.csv` (columns `date,base_currency,currency,rate,source,table`; NBP rows have base PLN, other sources can be added later): every foreign currency in `transactions.csv`, from the day after the last known rate to today (`--currencies`, `--from`, `--to`, `--dry-run`) |
-| `gw2kcop prices` | download daily closing prices (optional Yahoo adapter) |
+| `gw2kcop prices download` | download daily closing prices from Yahoo into `prices.csv` (optional: `pip install yfinance`) for instruments with `price_source=yahoo` (`--tickers`, `--from`, `--to`, `--dry-run`) |
+| `gw2kcop prices import FILE --ticker T` | add a fund's price history exported by hand (BAMOSZ CSV) to `prices.csv` (`--dry-run`) |
 | `gw2kcop anonymize PATH` | make an anonymized sample from a real CSV export (`--check` to scan a sample) |
 
 ## Quick start
@@ -71,6 +72,18 @@ Positions bought before the history an export can show (and cash at the start) g
 `gw2kcop transactions opening` (`--dry-run` checks only). See
 `src/gw2kcop/transactions/opening.py` for the columns. Rows get type `opening_balance`:
 a position has its quantity at average cost and amount 0; a cash row has only the amount.
+
+## Prices
+`<data>/prices.csv` has the columns `date,ticker,price,currency,source`; `date` is the real
+date of the price, and a report uses the last price on or before its day.
+- `prices download` uses `source_symbol` from `instruments.csv` (e.g. `PKN.WA`, `EUNL.DE`).
+  It goes through the third-party `yfinance` package: an unofficial interface to Yahoo, for
+  personal use only, which can stop working without notice. Closes are not adjusted for
+  dividends; LSE prices in pence are stored in GBP.
+- `prices import` reads a fund price history you downloaded yourself from BAMOSZ
+  (www.bamosz.hu). The file has no ISIN, so `--ticker` names the fund. The tool never
+  fetches that site.
+- A price already in the file with a different value stops the run; nothing is written.
 
 ## Install (development)
 Requires Python 3.11 or newer.

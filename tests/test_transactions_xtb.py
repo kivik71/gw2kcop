@@ -242,3 +242,13 @@ def test_zip_notes_are_masked(tmp_path, capsys):
     main(["--config", str(cfg), "transactions", "import", "2026-11"])
     out = capsys.readouterr().out
     assert "kept in place" in out and "1234567890" not in out
+
+
+def test_zip_folder_after_import_is_quiet(tmp_path, capsys):
+    cfg, data, month = _zip_setup(tmp_path)
+    (month / "OWNA-XTB" / "_zaimportowane").mkdir(parents=True)
+    (month / "OWNA-TYPO").mkdir()
+    (month / "OWNA-TYPO" / "x.csv").write_text("x", encoding="utf-8")
+    main(["--config", str(cfg), "transactions", "import", "2026-11", "--dry-run"])
+    out = capsys.readouterr().out
+    assert "OWNA-XTB" not in out and "OWNA-TYPO/: no such account_id" in out

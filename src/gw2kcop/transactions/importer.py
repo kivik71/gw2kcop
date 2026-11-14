@@ -280,6 +280,8 @@ def import_folder(config: Config, accounts: list[Account], specs: list[FormatSpe
         if account is None:
             zips = sorted(p for p in entry.iterdir() if p.is_file() and p.suffix.lower() == ".zip")
             if not zips:
+                if all(p.name.startswith((".", "_")) for p in entry.iterdir()):
+                    continue  # nothing new, e.g. a ZIP folder holding only _zaimportowane/
                 notes.append(f"{entry.name}/: no such account_id in accounts.csv, not imported")
                 continue
             # A folder of multi-account ZIPs (e.g. OWNA-XTB/): accounts come from the files.

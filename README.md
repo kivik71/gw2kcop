@@ -17,7 +17,7 @@ never stores passwords.
 | `gw2kcop prepare RRRR-MM` | create export folders for a month: `RRRR-MM/<account_id>/` (`--start` for full histories) |
 | `gw2kcop transactions import RRRR-MM` | parse a month's exports, deduplicate, append new rows to `transactions.csv` (`--dry-run` to check only) |
 | `gw2kcop transactions opening` | add manual opening balances from `opening_balances.csv` |
-| `gw2kcop fx` | download NBP table A average rates (api.nbp.pl, no key) into `fx_rates.csv`: every foreign currency in `transactions.csv`, from the day after the last known rate to today (`--currencies`, `--from`, `--to`, `--dry-run`) |
+| `gw2kcop fx` | download NBP table A average rates (api.nbp.pl, no key) into `fx_rates.csv` (columns `date,base_currency,currency,rate,source,table`; NBP rows have base PLN, other sources can be added later): every foreign currency in `transactions.csv`, from the day after the last known rate to today (`--currencies`, `--from`, `--to`, `--dry-run`) |
 | `gw2kcop prices` | download daily closing prices (optional Yahoo adapter) |
 | `gw2kcop anonymize PATH` | make an anonymized sample from a real CSV export (`--check` to scan a sample) |
 

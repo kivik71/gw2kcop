@@ -237,31 +237,33 @@ def _cmd_fx(args: argparse.Namespace) -> int:
     from datetime import date, datetime, timedelta
 
     from gw2kcop.fx import nbp
+    from gw2kcop.fx import rates as fx
 
     config = load_config(args.config)
-    path = config.data_dir / nbp.FILE_NAME
+    path = config.data_dir / fx.FILE_NAME
     try:
         start = date.fromisoformat(args.start) if args.start else None
         end = date.fromisoformat(args.end) if args.end else datetime.now(config.timezone).date()
     except ValueError:
         raise ValueError("dates must be YYYY-MM-DD") from None
+    base = nbp.BASE_CURRENCY  # the only source so far
     codes = sorted({c.strip().upper() for c in args.currencies.split(",") if c.strip()}) if args.currencies \
-        else sorted(nbp.wanted_currencies(config.data_dir))
+        else sorted(fx.wanted_currencies(config.data_dir, base))
     if not codes:
-        print("No foreign currency in transactions.csv; nothing to download (use --currencies).")
+        print(f"No currency other than {base} in transactions.csv; nothing to download (use --currencies).")
         return OK
-    known = nbp.last_known(path)
-    first = nbp.first_transaction_date(config.data_dir)
-    rates = []
+    known = fx.last_known(path, base)
+    first = fx.first_transaction_date(config.data_dir)
+    found = []
     for code in codes:
         begin = start or (known[code] + timedelta(days=1) if code in known
                           else (first - timedelta(days=7) if first else end - timedelta(days=7)))
         got = nbp.download(code, begin, end) if begin <= end else []
-        print(f"  {code}: {len(got)} rate(s) {begin} .. {end}")
-        rates.extend(got)
-    added, already = nbp.merge(path, rates, dry_run=args.dry_run)
+        print(f"  {code}/{base} ({nbp.SOURCE}): {len(got)} rate(s) {begin} .. {end}")
+        found.extend(got)
+    added, already = fx.merge(path, found, dry_run=args.dry_run)
     verb = "would add" if args.dry_run else "added"
-    print(f"{nbp.FILE_NAME}: {verb} {added}, already known {already}")
+    print(f"{fx.FILE_NAME}: {verb} {added}, already known {already}")
     if args.dry_run:
         print("Dry run: nothing was written.")
     return OK

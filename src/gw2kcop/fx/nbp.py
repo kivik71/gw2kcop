@@ -1,55 +1,33 @@
-"""NBP average exchange rates (table A) -> ``<data>/fx_rates.csv``.
+"""NBP average exchange rates (table A), base currency PLN.
 
 Source: the official NBP API, ``https://api.nbp.pl/api/exchangerates/rates/A/{code}/{start}/{end}/``
-(free, no key). Only days with a published table get a row; for a day without one
-(weekend, holiday) the reader uses the last earlier rate. Table A is published since
-2002-01-02 and one request may cover at most 367 days.
-
-``fx_rates.csv`` columns (approved 2026-11-01): ``date, currency, rate_pln, nbp_table``.
-A known (date, currency) with the same rate is skipped; a different rate is an error and
-nothing is written (fail closed).
+(free, no key). Table A is published since 2002-01-02 and one request may cover at most
+367 days. Rates are returned as :class:`gw2kcop.fx.rates.Rate` with ``base_currency=PLN``
+and ``source=NBP``; storing them is the job of :mod:`gw2kcop.fx.rates`.
 """
 
 from __future__ import annotations
 
-import csv
-import io
 import json
 import re
 import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable
-from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, timedelta
 from decimal import Decimal
-from pathlib import Path
 
-from gw2kcop.io.text import read_text
-from gw2kcop.transactions.master import _atomic_write, _backup, _render  # shared safe-write helpers
+from gw2kcop.fx.rates import CODE_RE, FxError, Rate
 
+SOURCE = "NBP"
+BASE_CURRENCY = "PLN"
 HOST = "api.nbp.pl"  # the only host this module talks to
 URL = "https://" + HOST + "/api/exchangerates/rates/A/{code}/{start}/{end}/?format=json"
 FIRST_DAY = date(2002, 1, 2)  # first table A in the API
 MAX_DAYS = 367
 TIMEOUT = 30
 RETRIES = 3
-COLUMNS = ("date", "currency", "rate_pln", "nbp_table")
-FILE_NAME = "fx_rates.csv"
-_CODE_RE = re.compile(r"^[A-Z]{3}$")
 _TABLE_RE = re.compile(r"^\d{3}/A/NBP/\d{4}$")
-
-
-class FxError(ValueError):
-    """Download, validation or merge problem; nothing is written."""
-
-
-@dataclass(frozen=True)
-class Rate:
-    date: date
-    currency: str
-    rate_pln: Decimal
-    nbp_table: str
 
 
 Fetch = Callable[[str], bytes | None]  # URL -> body, or None for "no data" (HTTP 404)
@@ -86,7 +64,7 @@ def _chunks(start: date, end: date):
 def download(code: str, start: date, end: date, fetch: Fetch | None = None) -> list[Rate]:
     """All table A rates of ``code`` between ``start`` and ``end``, validated."""
     fetch = fetch or http_fetch
-    if not _CODE_RE.match(code) or code == "PLN":
+    if not CODE_RE.match(code) or code == BASE_CURRENCY:
         raise FxError(f"not a foreign currency code: {code!r}")
     start = max(start, FIRST_DAY)
     out: list[Rate] = []
@@ -104,71 +82,9 @@ def download(code: str, start: date, end: date, fetch: Fetch | None = None) -> l
                 table = item["no"]
                 if not a <= day <= b or not mid > 0 or not _TABLE_RE.match(table):
                     raise FxError(f"NBP API: implausible rate {item!r} for {code}")
-                out.append(Rate(day, code, mid, table))
+                out.append(Rate(day, BASE_CURRENCY, code, mid, SOURCE, table))
         except (KeyError, TypeError, ValueError, AttributeError) as exc:
             if isinstance(exc, FxError):
                 raise
             raise FxError(f"NBP API: unexpected answer for {code} {a}..{b}: {exc}") from None
     return out
-
-
-def read_rates(path: Path) -> dict[tuple[date, str], Rate]:
-    if not path.exists():
-        return {}
-    reader = csv.DictReader(io.StringIO(read_text(path).text, newline=""))
-    if tuple(reader.fieldnames or ()) != COLUMNS:
-        raise FxError(f"{path.name}: header must be {','.join(COLUMNS)}")
-    out: dict[tuple[date, str], Rate] = {}
-    for row in reader:
-        rate = Rate(date.fromisoformat(row["date"]), row["currency"], Decimal(row["rate_pln"]), row["nbp_table"])
-        out[(rate.date, rate.currency)] = rate
-    return out
-
-
-def merge(path: Path, rates: list[Rate], dry_run: bool = False) -> tuple[int, int]:
-    """Add new rates; returns ``(added, known)``. A changed rate raises ``FxError``."""
-    existing = read_rates(path)
-    added: dict[tuple[date, str], Rate] = {}
-    known = 0
-    for rate in rates:
-        key = (rate.date, rate.currency)
-        old = existing.get(key) or added.get(key)
-        if old is None:
-            added[key] = rate
-        elif old.rate_pln == rate.rate_pln:
-            known += 1
-        else:
-            raise FxError(f"{rate.currency} {rate.date}: {FILE_NAME} has {old.rate_pln}, NBP now {rate.rate_pln}; "
-                          "nothing written")
-    if added and not dry_run:
-        rows = sorted({**existing, **added}.values(), key=lambda r: (r.date, r.currency))
-        _backup(path, datetime.now(timezone.utc))
-        _atomic_write(path, _render(COLUMNS, ({
-            "date": r.date.isoformat(), "currency": r.currency,
-            "rate_pln": format(r.rate_pln, "f"), "nbp_table": r.nbp_table} for r in rows)))
-    return len(added), known
-
-
-def last_known(path: Path) -> dict[str, date]:
-    """Latest date per currency already in the file."""
-    out: dict[str, date] = {}
-    for (day, code) in read_rates(path):
-        out[code] = max(out.get(code, day), day)
-    return out
-
-
-def wanted_currencies(data_dir: Path) -> set[str]:
-    """Foreign currencies used in transactions.csv (amount or price) or already in fx_rates.csv."""
-    from gw2kcop.transactions.master import read_master
-
-    codes = {code for _, code in read_rates(data_dir / FILE_NAME)}
-    for row in read_master(data_dir / "transactions.csv"):
-        codes.update(c for c in (row["currency"], row["price_currency"]) if c)
-    return {c for c in codes if c != "PLN"}
-
-
-def first_transaction_date(data_dir: Path) -> date | None:
-    from gw2kcop.transactions.master import read_master
-
-    days = [date.fromisoformat(r["date"]) for r in read_master(data_dir / "transactions.csv")]
-    return min(days) if days else None

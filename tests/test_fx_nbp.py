@@ -10,6 +10,7 @@ import pytest
 
 from gw2kcop.cli import main
 from gw2kcop.fx import nbp
+from gw2kcop.fx import rates as fx
 
 
 def answer(code, rates):
@@ -33,7 +34,7 @@ class FakeNbp:
 def test_download_validates_and_splits_long_ranges():
     fake = FakeNbp({"USD": [("2025-01-02", 4.1), ("2026-01-05", 3.9)]})
     rates = nbp.download("USD", date(2025, 1, 1), date(2026, 1, 31), fetch=fake)
-    assert [(r.date.isoformat(), r.rate_pln) for r in rates] == [
+    assert [(r.date.isoformat(), r.rate) for r in rates] == [
         ("2025-01-02", Decimal("4.1")), ("2026-01-05", Decimal("3.9"))]
     assert len(fake.urls) == 2  # 396 days -> two requests of at most 367 days
     assert all(u.startswith("https://api.nbp.pl/api/exchangerates/rates/A/usd/") for u in fake.urls)
@@ -49,25 +50,52 @@ def test_download_validates_and_splits_long_ranges():
     (b"<html>", "unexpected answer"),
 ])
 def test_download_fails_closed(body, message):
-    with pytest.raises(nbp.FxError, match=message):
+    with pytest.raises(fx.FxError, match=message):
         nbp.download("USD", date(2026, 1, 1), date(2026, 1, 31), fetch=lambda url: body)
 
 
 def test_only_nbp_host_and_codes():
-    with pytest.raises(nbp.FxError, match="only api.nbp.pl"):
+    with pytest.raises(fx.FxError, match="only api.nbp.pl"):
         nbp.http_fetch("https://example.com/x")
-    with pytest.raises(nbp.FxError, match="foreign currency"):
+    with pytest.raises(fx.FxError, match="foreign currency"):
         nbp.download("PLN", date(2026, 1, 1), date(2026, 1, 2), fetch=lambda url: None)
+
+
+def test_rates_are_pln_based_nbp():
+    fake = FakeNbp({"USD": [("2026-01-02", 4.1)]})
+    (rate,) = nbp.download("USD", date(2026, 1, 1), date(2026, 1, 31), fetch=fake)
+    assert (rate.base_currency, rate.currency, rate.source, rate.table) == ("PLN", "USD", "NBP", "001/A/NBP/2026")
 
 
 def test_merge_keeps_known_and_refuses_changed(tmp_path):
     path = tmp_path / "fx_rates.csv"
-    r1 = nbp.Rate(date(2026, 1, 2), "USD", Decimal("4.1"), "001/A/NBP/2026")
-    assert nbp.merge(path, [r1]) == (1, 0)
-    assert nbp.merge(path, [r1]) == (0, 1)
-    with pytest.raises(nbp.FxError, match="nothing written"):
-        nbp.merge(path, [nbp.Rate(r1.date, "USD", Decimal("4.2"), r1.nbp_table)])
-    assert path.read_text(encoding="utf-8") == "date,currency,rate_pln,nbp_table\n2026-01-02,USD,4.1,001/A/NBP/2026\n"
+    r1 = fx.Rate(date(2026, 1, 2), "PLN", "USD", Decimal("4.1"), "NBP", "001/A/NBP/2026")
+    assert fx.merge(path, [r1]) == (1, 0)
+    assert fx.merge(path, [r1]) == (0, 1)
+    with pytest.raises(fx.FxError, match="nothing written"):
+        fx.merge(path, [fx.Rate(r1.date, "PLN", "USD", Decimal("4.2"), "NBP", r1.table)])
+    assert path.read_text(encoding="utf-8") == (
+        "date,base_currency,currency,rate,source,table\n2026-01-02,PLN,USD,4.1,NBP,001/A/NBP/2026\n")
+
+
+def test_other_base_currencies_live_side_by_side(tmp_path):
+    path = tmp_path / "fx_rates.csv"
+    pln = fx.Rate(date(2026, 1, 2), "PLN", "USD", Decimal("4.1"), "NBP", "001/A/NBP/2026")
+    sek = fx.Rate(date(2026, 1, 2), "SEK", "USD", Decimal("10.5"), "TEST")  # synthetic rate, no table id
+    assert fx.merge(path, [pln, sek]) == (2, 0)
+    assert set(fx.read_rates(path)) == {pln.key, sek.key}
+    assert fx.last_known(path, "PLN") == {"USD": date(2026, 1, 2)}
+    assert fx.last_known(path, "EUR") == {}
+
+
+def test_bad_file_is_refused(tmp_path):
+    path = tmp_path / "fx_rates.csv"
+    path.write_text("date,currency,rate_pln,nbp_table\n", encoding="utf-8")
+    with pytest.raises(fx.FxError, match="header must be"):
+        fx.read_rates(path)
+    path.write_text("date,base_currency,currency,rate,source,table\n2026-01-02,PLN,USD,0,NBP,\n", encoding="utf-8")
+    with pytest.raises(fx.FxError, match="rate > 0"):
+        fx.read_rates(path)
 
 
 def test_fx_command(tmp_path, capsys, monkeypatch):

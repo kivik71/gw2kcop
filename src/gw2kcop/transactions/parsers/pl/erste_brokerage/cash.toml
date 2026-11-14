@@ -46,9 +46,46 @@ direction = "debit"
 type = "tax"
 group = "div:{isin}:{dp}"
 
+# Older texts (seen 2017-2020 in exports from 2026-11-14): short codes with the
+# instrument code (e.g. ACP) and a number. The code is an alias in instrument_aliases.csv.
+[[rules]]
+pattern = '^DYW\.;(?P<alias>[A-Z0-9]+);\d+$'
+direction = "credit"
+type = "dividend"
+group = "div:{alias}:{date}"
+
+[[rules]]
+pattern = '^PD;DYW;(?P<alias>[A-Z0-9]+);\d+$'
+direction = "debit"
+type = "tax"                  # dividend tax, booked on the payment date
+group = "div:{alias}:{date}"
+
+[[rules]]
+# Seen once (one instrument). Meaning not confirmed (likely a buy-out of shares):
+# kept as "other" with the instrument until the securities history confirms it.
+pattern = '^WYK\.;(?P<alias>[A-Z0-9]+);\d+$'
+direction = "credit"
+type = "other"
+
+[[rules]]
+pattern = '^(?i:op\.mie\.za\.prow\.rach)\d{2}/\d{2}$'
+direction = "debit"
+type = "charge"               # monthly account fee
+
+[[rules]]
+pattern = '^Księgowanie prowizji od dyspozycji przelewu: \d+$'
+direction = "debit"
+type = "charge"               # fee for a transfer order
+
+[[rules]]
+pattern = '^Przelew na rachunek bankowy '
+direction = "debit"
+type = "withdrawal"           # internal transfers: plan 2.4
+
 # Deposit titles are free text (seen: the sender's transfer title). Broker wording
 # must not end up here as a deposit, so texts starting with typical broker words stop the import.
 [[rules]]
-pattern = '^(?!(?i:dywidenda|podatek|prowizja|opłata|odsetki|zwrot|korekta|NOT:)).'
+# Short broker codes ("XYZ.;" or "XY;") are excluded too.
+pattern = '^(?!(?i:dywidenda|dyw\b|podatek|prowizja|opłata|odsetki|zwrot|korekta|księgowanie|NOT:)|[A-Za-z]{1,6}\.?;).'
 direction = "credit"
 type = "deposit"              # internal transfers: plan 2.4

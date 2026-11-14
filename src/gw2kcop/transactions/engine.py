@@ -240,7 +240,7 @@ def _cash(ctx: _Ctx, rows) -> list[Transaction]:
         group = ""
         if rule.group:
             try:
-                group = f"{spec.institution}|{ctx.account.account_id}|" + rule.group.format(**found)
+                group = f"{spec.institution}|{ctx.account.account_id}|" + rule.group.format(**{"date": day.isoformat(), **found})
             except (KeyError, IndexError):
                 ctx.fail(line, f"rule group {rule.group!r} needs a field the pattern does not capture")
                 continue

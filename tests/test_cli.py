@@ -29,7 +29,7 @@ def test_unknown_command_is_rejected():
 
 
 def test_anonymize_missing_file_hints_at_imported_copy(tmp_path, capsys):
-    folder = tmp_path / "TOM-TEST"
+    folder = tmp_path / "OWNA-TEST"
     (folder / "_zaimportowane").mkdir(parents=True)
     (folder / "_zaimportowane" / "export.csv").write_text("a;b\n1;2\n", encoding="utf-8")
     args = ["anonymize", str(folder / "export.csv"), "--mapping-dir", str(tmp_path / "map"),

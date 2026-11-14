@@ -23,7 +23,7 @@ LATER = datetime(2026, 11, 11, 9, 0, 0, tzinfo=timezone.utc)
 
 
 def tx(**kw):
-    base = dict(date=date(2026, 5, 22), account_id="TOM-TEST-BM", institution="test_broker",
+    base = dict(date=date(2026, 5, 22), account_id="OWNA-TEST-BM", institution="test_broker",
                 type="dividend", amount=Decimal("12.50"), currency="PLN",
                 description="Dywidenda: DP: 2026-05-15 PLTEST000016 (TEST);")
     base.update(kw)
@@ -36,7 +36,7 @@ def rows(path):
 
 def test_key_with_source_id():
     [(key, _)] = assign_keys([tx(source_id="38427129")])
-    assert key == "test_broker|TOM-TEST-BM|38427129"
+    assert key == "test_broker|OWNA-TEST-BM|38427129"
 
 
 def test_hash_keys_count_identical_rows():
@@ -117,7 +117,7 @@ def test_trade_row_fields_and_formula_neutralized(tmp_path):
 
 @pytest.mark.parametrize("bad", [
     dict(type="buy_stuff"),
-    dict(account_id="tom-test"),
+    dict(account_id="owna-test"),
     dict(currency="pln"),
     dict(fee=Decimal("-1")),
     dict(isin="PL123"),

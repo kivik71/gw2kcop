@@ -20,7 +20,7 @@ WARSAW = ZoneInfo("Europe/Warsaw")
 TRADES_HEADER = ("Walor;Giełda;K/S;Liczba;Kurs;Waluta;Wartość;Prowizja;Czas transakcji;"
                  "Waluta rozliczenia;Kurs Przewalutowania")
 CASH_HEADER = "Data księgowania;Typ operacji;Opis;Kwota;Saldo początkowe;Saldo końcowe"
-ACCOUNT = Account("TOM-TEST-IKE", "mbank_brokerage", "tom", "", "Test IKE", "ike", "PLN", True, "parser")
+ACCOUNT = Account("OWNA-TEST-IKE", "mbank_brokerage", "owna", "", "Test IKE", "ike", "PLN", True, "parser")
 
 
 def spec(kind):
@@ -109,7 +109,7 @@ def test_cash():
     tax, div, dep = parse_export(CASH, spec("cash"), ACCOUNT, REF, WARSAW)
     assert (div.type, div.amount, div.instrument, div.isin) == ("dividend", Decimal("12.50"), "WSE:TESTCO", "PLTEST000016")
     assert tax.type == "tax" and tax.amount == Decimal("-2.38")
-    assert div.group_id == tax.group_id == "mbank_brokerage|TOM-TEST-IKE|div:PLTEST000016:2026-05-15"
+    assert div.group_id == tax.group_id == "mbank_brokerage|OWNA-TEST-IKE|div:PLTEST000016:2026-05-15"
     assert dep.type == "deposit" and dep.currency == "PLN" and dep.timestamp_utc is None
 
 
@@ -148,15 +148,15 @@ def setup(tmp_path):
                    encoding="utf-8")
     write(data / "accounts.csv",
           "account_id,institution,owner,export_identifier,name,account_type,currency,active,import_method\n"
-          "TOM-TEST-IKE,mbank_brokerage,tom,,Test IKE,ike,PLN,TRUE,parser\n"
-          "TOM-UFK-TEST,test_ufk,tom,,UFK,unit_linked,PLN,TRUE,manual\n")
+          "OWNA-TEST-IKE,mbank_brokerage,owna,,Test IKE,ike,PLN,TRUE,parser\n"
+          "OWNA-UFK-TEST,test_ufk,owna,,UFK,unit_linked,PLN,TRUE,manual\n")
     write(data / "instruments.csv", "ticker,name,isin\nWSE:TESTCO,Test,PLTEST000016\nETR:TEST,Test ETF,DETEST000012\n")
     write(data / "instrument_aliases.csv", "institution,alias,ticker\n"
           "mbank_brokerage,TESTCO,WSE:TESTCO\nmbank_brokerage,PLTEST000016,WSE:TESTCO\n")
-    month = exports / "2026-05" / "TOM-TEST-IKE"
+    month = exports / "2026-05" / "OWNA-TEST-IKE"
     write(month / "Historia transakcji 1.csv", TRADES.lstrip("﻿"), bom=True)
     write(month / "Historia operacji finansowych 2.csv", CASH.lstrip("﻿"), bom=True)
-    write(exports / "2026-05" / "TOM-UFK-TEST" / "saldo.txt", "paste")
+    write(exports / "2026-05" / "OWNA-UFK-TEST" / "saldo.txt", "paste")
     return ["--config", str(cfg)], data, month
 
 
@@ -185,7 +185,7 @@ def test_import_dry_run_then_real_then_reimport(setup, capsys):
     keys = [r["key"] for r in rows if r["type"] == "buy"]
     assert len(keys) == 3 and keys[0].endswith("|1") and keys[1].endswith("|2")
     # the same files exported again next month add nothing
-    again = month.parent.parent / "2026-06" / "TOM-TEST-IKE"
+    again = month.parent.parent / "2026-06" / "OWNA-TEST-IKE"
     write(again / "Historia transakcji 9.csv", TRADES.lstrip("﻿"), bom=True)
     assert main([*cfg, "transactions", "import", "2026-06"]) == 0
     assert "added 0, already known 4" in capsys.readouterr().out
@@ -194,5 +194,5 @@ def test_import_dry_run_then_real_then_reimport(setup, capsys):
 def test_import_unknown_header(setup, capsys):
     cfg, _, month = setup
     write(month / "inny.csv", "a;b;c\n1;2;3\n")
-    assert main([*cfg, "transactions", "import", "2026-05", "--account", "TOM-TEST-IKE"]) == 1
+    assert main([*cfg, "transactions", "import", "2026-05", "--account", "OWNA-TEST-IKE"]) == 1
     assert "header not recognised" in capsys.readouterr().out

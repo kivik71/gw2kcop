@@ -40,7 +40,7 @@ ACCOUNT_TYPES = {
     "bonds",
 }
 IMPORT_METHODS = {"parser", "manual"}
-# Upper-case letters/digits in at least two dash-separated parts, e.g. TOM-XTB-PLN.
+# Upper-case letters/digits in at least two dash-separated parts, e.g. OWNA-XTB-PLN.
 # Also guarantees the id is a safe folder name (no dots, slashes or spaces).
 ACCOUNT_ID_RE = re.compile(r"^[A-Z0-9]+(?:-[A-Z0-9]+)+$")
 CURRENCY_RE = re.compile(r"^[A-Z]{3}$")
@@ -103,7 +103,7 @@ def parse_accounts(text: str, source: str = "accounts.csv") -> list[Account]:
             errors.append(str(exc))
             continue
         if not ACCOUNT_ID_RE.match(account.account_id):
-            errors.append(f"{where}: invalid account_id {account.account_id!r} (e.g. TOM-XTB-PLN)")
+            errors.append(f"{where}: invalid account_id {account.account_id!r} (e.g. OWNA-XTB-PLN)")
         elif account.account_id in seen:
             errors.append(f"{where}: duplicate account_id {account.account_id!r}")
         seen.add(account.account_id)

@@ -17,7 +17,7 @@ from gw2kcop.transactions.xtb import CASH_HEADER, parse_statement
 
 WARSAW = ZoneInfo("Europe/Warsaw")
 NUMBER = "00000001"  # synthetic account number
-ACCOUNT = Account("TOM-TEST-USD", "xtb", "tom", NUMBER, "Test USD", "brokerage", "USD", True, "parser")
+ACCOUNT = Account("OWNA-TEST-USD", "xtb", "owna", NUMBER, "Test USD", "brokerage", "USD", True, "parser")
 CONV = f"Currency conversion, PLN to USD from TA: 00000002 to: {NUMBER}, Exchange rate:0.25"
 CASH = [
     ("Deposit", "", "", "", datetime(2026, 8, 4, 8, 15), 100.0, "1001", "Test bank deposit", "My Trades", ""),
@@ -76,8 +76,8 @@ def test_cash_operations(tmp_path):
     assert buy.instrument == "NYSE:TEST" and buy.isin == "US0000000001" and buy.price_currency == "USD"
     assert part.quantity == Decimal("0.5")
     assert div.date == date(2026, 10, 1)  # 22:30 UTC = 00:30 Warsaw next day
-    assert div.group_id == wht.group_id == "xtb|TOM-TEST-USD|div:TEST.US:2026-10-01"
-    assert intr.group_id == itax.group_id == "xtb|TOM-TEST-USD|int:2026-09"
+    assert div.group_id == wht.group_id == "xtb|OWNA-TEST-USD|div:TEST.US:2026-10-01"
+    assert intr.group_id == itax.group_id == "xtb|OWNA-TEST-USD|int:2026-09"
     assert fx.amount == Decimal("250.00")
 
 
@@ -111,7 +111,7 @@ def test_missing_alias_and_unchecked_number(tmp_path):
     with pytest.raises(ParseError) as exc:
         parse_statement(build(tmp_path / "a.xlsx"), ACCOUNT, Reference(), WARSAW)
     assert exc.value.missing_aliases == ["TEST.US"]
-    no_id = Account("TOM-TEST-USD", "xtb", "tom", "", "Test", "brokerage", "USD", True, "parser")
+    no_id = Account("OWNA-TEST-USD", "xtb", "owna", "", "Test", "brokerage", "USD", True, "parser")
     _, notes = parse_statement(build(tmp_path / "b.xlsx"), no_id, ref(), WARSAW)
     assert "account number not checked" in notes[0]
 
@@ -131,10 +131,10 @@ def test_import_command(tmp_path, capsys):
     data.mkdir()
     (data / "accounts.csv").write_text(
         "account_id,institution,owner,export_identifier,name,account_type,currency,active,import_method\n"
-        f"TOM-TEST-USD,xtb,tom,{NUMBER},Test USD,brokerage,USD,TRUE,parser\n", encoding="utf-8")
+        f"OWNA-TEST-USD,xtb,owna,{NUMBER},Test USD,brokerage,USD,TRUE,parser\n", encoding="utf-8")
     (data / "instruments.csv").write_text("ticker,name,isin\nNYSE:TEST,Test,US0000000001\n", encoding="utf-8")
     (data / "instrument_aliases.csv").write_text("institution,alias,ticker\nxtb,TEST.US,NYSE:TEST\n", encoding="utf-8")
-    folder = exports / "2026-11" / "TOM-TEST-USD"
+    folder = exports / "2026-11" / "OWNA-TEST-USD"
     folder.mkdir(parents=True)
     build(folder / f"USD_{NUMBER}_2026-01-01_2026-11-03.xlsx")
     (folder / "notes.csv").write_text("x", encoding="utf-8")
@@ -142,7 +142,7 @@ def test_import_command(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "added 8, already known 0 (xtb.statement)" in out and "only .xlsx is supported" in out
     rows = list(csv.DictReader(io.StringIO((data / "transactions.csv").read_text(encoding="utf-8"))))
-    assert rows[0]["key"] == "xtb|TOM-TEST-USD|1001"
+    assert rows[0]["key"] == "xtb|OWNA-TEST-USD|1001"
     assert (folder / "_zaimportowane" / f"USD_{NUMBER}_2026-01-01_2026-11-03.xlsx").exists()
 
 
@@ -154,7 +154,7 @@ def _zip_setup(tmp_path, numbers=(NUMBER,)):
                    f'data = "{data.as_posix()}"\naccounts = "{(data / "accounts.csv").as_posix()}"\n',
                    encoding="utf-8")
     data.mkdir()
-    rows = "".join(f"TOM-TEST-{i},xtb,tom,{n},Test {i},brokerage,USD,TRUE,parser\n" for i, n in enumerate(numbers))
+    rows = "".join(f"OWNA-TEST-{i},xtb,owna,{n},Test {i},brokerage,USD,TRUE,parser\n" for i, n in enumerate(numbers))
     (data / "accounts.csv").write_text(
         "account_id,institution,owner,export_identifier,name,account_type,currency,active,import_method\n" + rows,
         encoding="utf-8")
@@ -188,7 +188,7 @@ def test_zip_import(tmp_path, capsys):
     assert (month / "statements_1234567890.zip").exists()
     assert main(["--config", str(cfg), "transactions", "import", "2026-11"]) == 0
     rows = list(csv.DictReader(io.StringIO((data / "transactions.csv").read_text(encoding="utf-8"))))
-    assert {r["account_id"] for r in rows} == {"TOM-TEST-0", "TOM-TEST-1"} and len(rows) == 16
+    assert {r["account_id"] for r in rows} == {"OWNA-TEST-0", "OWNA-TEST-1"} and len(rows) == 16
     assert (month / "_zaimportowane" / "statements_1234567890.zip").exists()
     assert not (month / "statements_1234567890.zip").exists()
 
@@ -210,11 +210,11 @@ def test_zip_partial_import_keeps_the_zip(tmp_path, capsys):
     second = "00000003"
     cfg, data, month = _zip_setup(tmp_path, (NUMBER, second))
     _zip(month / "s.zip", tmp_path, {f"{NUMBER}/a.xlsx": NUMBER, f"{second}/b.xlsx": second})
-    assert main(["--config", str(cfg), "transactions", "import", "2026-11", "--account", "TOM-TEST-0"]) == 0
+    assert main(["--config", str(cfg), "transactions", "import", "2026-11", "--account", "OWNA-TEST-0"]) == 0
     out = capsys.readouterr().out
     assert "kept in place" in out and (month / "s.zip").exists()
     rows = list(csv.DictReader(io.StringIO((data / "transactions.csv").read_text(encoding="utf-8"))))
-    assert {r["account_id"] for r in rows} == {"TOM-TEST-0"}
+    assert {r["account_id"] for r in rows} == {"OWNA-TEST-0"}
 
 
 def test_zip_not_readable(tmp_path, capsys):
@@ -226,13 +226,13 @@ def test_zip_not_readable(tmp_path, capsys):
 
 def test_zip_in_its_own_folder(tmp_path, capsys):
     cfg, data, month = _zip_setup(tmp_path)
-    folder = month / "TOM-XTB"
+    folder = month / "OWNA-XTB"
     folder.mkdir()
     _zip(folder / "s_1234567890.zip", tmp_path, {f"{NUMBER}/a.xlsx": NUMBER})
     (folder / "readme.txt").write_text("x", encoding="utf-8")
     assert main(["--config", str(cfg), "transactions", "import", "2026-11"]) == 0
     out = capsys.readouterr().out
-    assert "TOM-TEST-0/s_….zip:a.xlsx: added 8" in out and "readme.txt: not a ZIP" in out
+    assert "OWNA-TEST-0/s_….zip:a.xlsx: added 8" in out and "readme.txt: not a ZIP" in out
     assert (folder / "_zaimportowane" / "s_1234567890.zip").exists()
 
 

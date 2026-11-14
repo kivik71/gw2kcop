@@ -16,7 +16,7 @@ from gw2kcop.transactions.formats import FormatError, builtin_specs, parse_spec
 from gw2kcop.transactions.reference import Reference
 
 WARSAW = ZoneInfo("Europe/Warsaw")
-ACCOUNT = Account("TOM-TEST-IKZE", "mbank_brokerage", "tom", "", "Test IKZE", "ikze", "PLN", True, "parser")
+ACCOUNT = Account("OWNA-TEST-IKZE", "mbank_brokerage", "owna", "", "Test IKZE", "ikze", "PLN", True, "parser")
 PREAMBLE = [
     "Test Bank S.A.", "Skrytka Pocztowa 1", "", "eMAKLER - Historia transakcji", "",
     "#Imię i nazwisko", "TEST OSOBA", "", "#Nr rachunku mBM", "00000000", "",
@@ -81,7 +81,7 @@ def test_cash_rules_overflow_and_ignored_rows():
     assert [t.type for t in txs] == ["dividend", "dividend", "deposit", "deposit"]
     div, foreign, dep, bank = txs
     assert div.description.endswith("(TESTCO);") and div.amount == Decimal("251.34")
-    assert div.group_id == "mbank_brokerage|TOM-TEST-IKZE|div:PLTEST000016:2026-10-08"
+    assert div.group_id == "mbank_brokerage|OWNA-TEST-IKZE|div:PLTEST000016:2026-10-08"
     assert foreign.isin == "DKTEST000012" and foreign.instrument == "CPH:TEST"
     assert dep.description == "IKZE WPŁATA" and dep.date == date(2026, 5, 31)
     assert bank.amount == Decimal("5000.00") and bank.currency == "PLN"
@@ -132,14 +132,14 @@ def test_import_detects_cp1250_files_after_preamble(tmp_path, capsys):
     data.mkdir()
     (data / "accounts.csv").write_text(
         "account_id,institution,owner,export_identifier,name,account_type,currency,active,import_method\n"
-        "TOM-TEST-IKZE,mbank_brokerage,tom,,Test IKZE,ikze,PLN,TRUE,parser\n", encoding="utf-8")
+        "OWNA-TEST-IKZE,mbank_brokerage,owna,,Test IKZE,ikze,PLN,TRUE,parser\n", encoding="utf-8")
     (data / "instruments.csv").write_text(
         "ticker,name,isin\nWSE:TESTCO,Test,PLTEST000016\nETR:TEST,Test ETF,DETEST000012\n"
         "CPH:TEST,Test DK,DKTEST000012\n", encoding="utf-8")
     (data / "instrument_aliases.csv").write_text(
         "institution,alias,ticker\nmbank_brokerage,TESTCO,WSE:TESTCO\nmbank_brokerage,TEST ETF,ETR:TEST\n"
         "mbank_brokerage,PLTEST000016,WSE:TESTCO\nmbank_brokerage,DKTEST000012,CPH:TEST\n", encoding="utf-8")
-    month = exports / "2026-11" / "TOM-TEST-IKZE"
+    month = exports / "2026-11" / "OWNA-TEST-IKZE"
     month.mkdir(parents=True)
     (month / "eMAKLER_historia_transakcji 2026.Csv").write_bytes(TRADES.encode("cp1250"))
     (month / "eMAKLER_historia_finansowa 2026.Csv").write_bytes(CASH.encode("cp1250"))

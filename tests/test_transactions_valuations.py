@@ -14,7 +14,7 @@ from gw2kcop.transactions.formats import FormatError, builtin_specs, parse_spec
 from gw2kcop.transactions.master import TransactionsError
 from gw2kcop.transactions.valuations import merge, parse_valuations
 
-ACCOUNT = Account("TOM-TEST", "mbank_brokerage", "tom", "", "Test", "brokerage", "PLN", True, "parser")
+ACCOUNT = Account("OWNA-TEST", "mbank_brokerage", "owna", "", "Test", "brokerage", "PLN", True, "parser")
 HEADER = "Data;Wycena całkowita PLN"
 EXPORT = "\n".join([
     HEADER,
@@ -56,7 +56,7 @@ def test_merge_same_value_known_changed_value_stops(tmp_path):
     assert merge(tmp_path, rows, "b.csv") == (0, 4)
     text = (tmp_path / "broker_valuations.csv").read_text(encoding="utf-8")
     assert text.splitlines()[0] == "date,account_id,value_pln,source_file"
-    assert "2026-01-02,TOM-TEST,1300.12345678,a.csv" in text and "2025-12-31,TOM-TEST,1234.5,a.csv" in text
+    assert "2026-01-02,OWNA-TEST,1300.12345678,a.csv" in text and "2025-12-31,OWNA-TEST,1234.5,a.csv" in text
     changed = parse_valuations(EXPORT.replace("1300,12345678", "1300,13"), spec(), ACCOUNT).rows
     with pytest.raises(TransactionsError, match="changed values"):
         merge(tmp_path, changed, "c.csv")
@@ -80,9 +80,9 @@ def test_import_command_writes_valuations_and_moves_file(tmp_path, capsys):
     data.mkdir()
     (data / "accounts.csv").write_text(
         "account_id,institution,owner,export_identifier,name,account_type,currency,active,import_method\n"
-        "TOM-TEST,mbank_brokerage,tom,,Test,brokerage,PLN,TRUE,parser\n", encoding="utf-8")
+        "OWNA-TEST,mbank_brokerage,owna,,Test,brokerage,PLN,TRUE,parser\n", encoding="utf-8")
     (data / "instruments.csv").write_text("ticker,name,isin\n", encoding="utf-8")
-    month = exports / "2026-01" / "TOM-TEST"
+    month = exports / "2026-01" / "OWNA-TEST"
     month.mkdir(parents=True)
     (month / "Historia wycen 1 2026.csv").write_text("﻿" + EXPORT, encoding="utf-8")
     assert main(["--config", str(cfg), "transactions", "import", "2026-01", "--dry-run"]) == 0

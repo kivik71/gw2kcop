@@ -114,3 +114,36 @@ def test_import_command(tmp_path, capsys):
     assert "added 3, already known 0 (erste_brokerage.cash)" in out
     rows = list(csv.DictReader(io.StringIO((data / "transactions.csv").read_text(encoding="utf-8"))))
     assert "erste_brokerage|OWNA-ERSTE-BM|9002" in {r["key"] for r in rows}
+
+
+OLD_CASH = [
+    '20-06-2019;Obciążenie;-19,00;PLN;"PD;DYW;TA;00000001";100,00;PLN;9105',  # codes are quoted
+    '20-06-2019;Uznanie;100,00;PLN;"DYW.;TA;00000001";119,00;PLN;9104',
+    '15-03-2019;Uznanie;50,00;PLN;"WYK.;TB;00000001";19,00;PLN;9103',
+    "31-01-2019;Obciążenie;-5,00;PLN;Op.mie.za.prow.rach01/19;-31,00;PLN;9102",
+    "31-12-2018;Obciążenie;-5,00;PLN;op.mie.za.prow.rach12/18;-26,00;PLN;9101",
+    "10-12-2018;Obciążenie;-1,00;PLN;Księgowanie prowizji od dyspozycji przelewu: 1;-21,00;PLN;9100",
+    "10-12-2018;Obciążenie;-20,00;PLN;Przelew na rachunek bankowy PL-TEST-ACCOUNT;-20,00;PLN;9099",
+]
+
+
+def old_ref():
+    r = ref()
+    r.aliases[("erste_brokerage", "TA")] = "WSE:TESTA"
+    r.aliases[("erste_brokerage", "TB")] = "WSE:TESTB"
+    return r
+
+
+def test_old_cash_texts():
+    txs = parse_export(text(CASH_HEADER, OLD_CASH), spec("cash"), ACCOUNT, old_ref(), WARSAW)
+    assert [t.type for t in txs] == ["tax", "dividend", "other", "charge", "charge", "charge", "withdrawal"]
+    tax, div, wyk = txs[:3]
+    assert tax.group_id == div.group_id == "erste_brokerage|OWNA-ERSTE-BM|div:TA:2019-06-20"
+    assert (div.instrument, div.isin, wyk.instrument) == ("WSE:TESTA", "PLTEST000016", "WSE:TESTB")
+
+
+@pytest.mark.parametrize("opis", ['"ABC.;X;1"', '"DYW;X;1"', "Dyw. TEST"])
+def test_codes_are_not_deposits(opis):
+    with pytest.raises(ParseError, match="unknown operation text"):
+        parse_export(text(CASH_HEADER, [f"12-05-2026;Uznanie;1,00;PLN;{opis};0,00;PLN;9200"]),
+                     spec("cash"), ACCOUNT, old_ref(), WARSAW)

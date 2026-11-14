@@ -282,7 +282,7 @@ def import_folder(config: Config, accounts: list[Account], specs: list[FormatSpe
             if not zips:
                 notes.append(f"{entry.name}/: no such account_id in accounts.csv, not imported")
                 continue
-            # A folder of multi-account ZIPs (e.g. TOM-XTB/): accounts come from the files.
+            # A folder of multi-account ZIPs (e.g. OWNA-XTB/): accounts come from the files.
             for path in zips:
                 zip_results, zip_notes = import_zip(path, accounts, reference, config, dry_run, only_account)
                 results.extend(zip_results)

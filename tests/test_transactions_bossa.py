@@ -15,7 +15,7 @@ from gw2kcop.transactions.formats import FormatError, builtin_specs, parse_spec
 from gw2kcop.transactions.reference import Reference
 
 WARSAW = ZoneInfo("Europe/Warsaw")
-ACCOUNT = Account("TOM-TEST-IKE", "bossa", "tom", "IKE 00000001", "Test IKE", "ike", "PLN", True, "parser")
+ACCOUNT = Account("OWNA-TEST-IKE", "bossa", "owna", "IKE 00000001", "Test IKE", "ike", "PLN", True, "parser")
 HEADER = "Data;Rachunek;Waluta;Tytuł operacji;Wartość"
 ROWS = [
     "05.01.2026;IKE 00000001;PLN;Rozliczenie transakcji kupna: Test ETF  (IETEST000012) TETF 25.000000 x 100.000000 PLN nr Z00000000001;-2512,50",
@@ -112,20 +112,20 @@ def test_import_command(tmp_path, capsys):
     data.mkdir()
     (data / "accounts.csv").write_text(
         "account_id,institution,owner,export_identifier,name,account_type,currency,active,import_method\n"
-        "TOM-TEST-IKE,bossa,tom,IKE 00000001,Test IKE,ike,PLN,TRUE,parser\n", encoding="utf-8")
+        "OWNA-TEST-IKE,bossa,owna,IKE 00000001,Test IKE,ike,PLN,TRUE,parser\n", encoding="utf-8")
     (data / "instruments.csv").write_text(
         "ticker,name,isin\nLSE:TETF,Test,IETEST000012\nWSE:TESTWIG,Test,PLTEST000016\nNYSE:TCO,Test,USTEST000018\n",
         encoding="utf-8")
     (data / "instrument_aliases.csv").write_text(
         "institution,alias,ticker\nbossa,IETEST000012,LSE:TETF\nbossa,TETF,LSE:TETF\n"
         "bossa,PLTEST000016,WSE:TESTWIG\nbossa,TCO,NYSE:TCO\n", encoding="utf-8")
-    folder = exports / "2026-11" / "TOM-TEST-IKE"
+    folder = exports / "2026-11" / "OWNA-TEST-IKE"
     folder.mkdir(parents=True)
     (folder / "financeHistory.csv").write_bytes(text().encode("utf-8"))
     assert main(["--config", str(cfg), "transactions", "import", "2026-11"]) == 0
     assert "added 8, already known 0 (bossa.finance_history)" in capsys.readouterr().out
     rows = list(csv.DictReader(io.StringIO((data / "transactions.csv").read_text(encoding="utf-8"))))
-    assert rows[0]["type"] == "buy" and rows[0]["fee"] == "12.5" and rows[0]["key"].startswith("bossa|TOM-TEST-IKE|h:")
+    assert rows[0]["type"] == "buy" and rows[0]["fee"] == "12.5" and rows[0]["key"].startswith("bossa|OWNA-TEST-IKE|h:")
     (folder / "financeHistory.csv").write_bytes(text().encode("utf-8"))
     assert main(["--config", str(cfg), "transactions", "import", "2026-11"]) == 0
     assert "added 0, already known 8" in capsys.readouterr().out

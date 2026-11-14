@@ -22,7 +22,6 @@ ERROR = 1
 NOT_IMPLEMENTED_EXIT = 2
 
 NOT_IMPLEMENTED: dict[str, str] = {
-    "fx": "download NBP exchange rates into fx_rates.csv",
     "prices": "download daily closing prices into prices.csv",
 }
 
@@ -81,6 +80,16 @@ def build_parser() -> argparse.ArgumentParser:
         description="Add positions and cash held before the known history (rows of "
         "<data>/opening_balances.csv) to transactions.csv as type opening_balance.")
     opening.add_argument("--dry-run", action="store_true", help="check only; write nothing")
+
+    fx = sub.add_parser(
+        "fx", help="download NBP exchange rates into fx_rates.csv",
+        description="Download NBP table A average rates (api.nbp.pl) into <data>/fx_rates.csv. "
+        "By default: every foreign currency in transactions.csv, from the day after the last "
+        "known rate (or a week before the first transaction) to today.")
+    fx.add_argument("--currencies", metavar="USD,EUR", help="only these currency codes")
+    fx.add_argument("--from", dest="start", metavar="YYYY-MM-DD", help="first day (default: see above)")
+    fx.add_argument("--to", dest="end", metavar="YYYY-MM-DD", help="last day (default: today)")
+    fx.add_argument("--dry-run", action="store_true", help="download and check only; write nothing")
 
     for name, help_text in NOT_IMPLEMENTED.items():
         sub.add_parser(name, help=help_text, description=help_text)
@@ -224,6 +233,40 @@ def _mask(text: str) -> str:
     return re.sub(r"[0-9]{6,}", "…", text)
 
 
+def _cmd_fx(args: argparse.Namespace) -> int:
+    from datetime import date, datetime, timedelta
+
+    from gw2kcop.fx import nbp
+
+    config = load_config(args.config)
+    path = config.data_dir / nbp.FILE_NAME
+    try:
+        start = date.fromisoformat(args.start) if args.start else None
+        end = date.fromisoformat(args.end) if args.end else datetime.now(config.timezone).date()
+    except ValueError:
+        raise ValueError("dates must be YYYY-MM-DD") from None
+    codes = sorted({c.strip().upper() for c in args.currencies.split(",") if c.strip()}) if args.currencies \
+        else sorted(nbp.wanted_currencies(config.data_dir))
+    if not codes:
+        print("No foreign currency in transactions.csv; nothing to download (use --currencies).")
+        return OK
+    known = nbp.last_known(path)
+    first = nbp.first_transaction_date(config.data_dir)
+    rates = []
+    for code in codes:
+        begin = start or (known[code] + timedelta(days=1) if code in known
+                          else (first - timedelta(days=7) if first else end - timedelta(days=7)))
+        got = nbp.download(code, begin, end) if begin <= end else []
+        print(f"  {code}: {len(got)} rate(s) {begin} .. {end}")
+        rates.extend(got)
+    added, already = nbp.merge(path, rates, dry_run=args.dry_run)
+    verb = "would add" if args.dry_run else "added"
+    print(f"{nbp.FILE_NAME}: {verb} {added}, already known {already}")
+    if args.dry_run:
+        print("Dry run: nothing was written.")
+    return OK
+
+
 def _cmd_opening(args: argparse.Namespace) -> int:
     from gw2kcop.transactions import master
     from gw2kcop.transactions.opening import FILE_NAME, OpeningError, read_opening
@@ -313,6 +356,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _cmd_anonymize(args)
         if args.command == "transactions":
             return _cmd_transactions(args)
+        if args.command == "fx":
+            return _cmd_fx(args)
     except (ConfigError, AccountsError, ValueError) as exc:
         print(f"gw2kcop {args.command}: {exc}", file=sys.stderr)
         return ERROR

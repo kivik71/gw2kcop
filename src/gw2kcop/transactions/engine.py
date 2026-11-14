@@ -248,6 +248,7 @@ def _cash(ctx: _Ctx, rows) -> list[Transaction]:
             date=day, timestamp_utc=moment, account_id=ctx.account.account_id,
             institution=spec.institution, type=rule.type, instrument=ticker, isin=isin,
             amount=amount, currency=currency, description=text, group_id=group, **trade,
+            source_id=row[cols["id"]] if "id" in cols else "",
         ))
     return out
 
@@ -276,11 +277,42 @@ def _trade_fields(ctx: _Ctx, side: str, found: dict, amount: Decimal, currency: 
             "price_currency": price_currency, "fee": fee}
 
 
+def _summary(ctx: _Ctx, rows):
+    """Drop the summary row (last row, ``total_row`` column empty) after checking its sums."""
+    spec = ctx.spec
+    if not spec.total_row:
+        return rows
+    if not rows or rows[-1][1][spec.total_row]:
+        raise ParseError([f"the summary row (empty {spec.total_row}) is missing at the end"], [])
+    line, total, _raw = rows[-1]
+    rows = rows[:-1]
+    for line_n, row, _ in rows:
+        if not row[spec.total_row]:
+            ctx.fail(line_n, f"{spec.total_row} is empty before the summary row")
+    for key in spec.checks.get("total_sums", []):
+        column = spec.columns[key]
+        values = [_num(ctx, row, key, n, optional=True) for n, row, _ in rows]
+        expected = _num(ctx, total, key, line, optional=True)
+        if ctx.errors:
+            break
+        found = sum((v for v in values if v is not None), Decimal(0))
+        if expected is None or found != expected:
+            ctx.fail(line, f"summary row: {column} {expected} != sum of rows {found}")
+    return rows
+
+
 def parse_export(text: str, spec: FormatSpec, account: Account, reference: Reference,
                  local_tz: ZoneInfo) -> list[Transaction]:
     """Parse one export file. Raises ``ParseError`` listing every problem found."""
     ctx = _Ctx(spec, account, reference, local_tz)
     rows = read_rows(text, spec)
+    rows = _summary(ctx, rows)
+    for column, value in spec.checks.get("equals", {}).items():
+        for line, row, _raw in rows:
+            if row[column] != value:
+                ctx.fail(line, f"{column} is {row[column]!r}, only {value!r} is imported")
+    if ctx.errors:
+        raise ParseError(ctx.errors, [])
     txs = _trades(ctx, rows) if spec.kind == "trades" else _cash(ctx, rows)
     if ctx.errors or ctx.missing:
         raise ParseError(ctx.errors, sorted(ctx.missing))

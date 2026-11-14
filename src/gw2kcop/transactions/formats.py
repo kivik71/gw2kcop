@@ -22,13 +22,13 @@ KINDS = ("trades", "cash", "valuations")
 _TOP_KEYS = {
     "format", "institution", "kind", "delimiter", "decimal", "header", "timezone",
     "datetime_format", "date_only", "currency", "columns", "sides", "directions",
-    "checks", "rules", "preamble", "overflow_column",
+    "checks", "rules", "preamble", "overflow_column", "total_row",
 }
 _COLUMN_KEYS = {
     "trades": {"instrument", "market", "side", "quantity", "price", "price_currency",
                "gross", "fee", "fee_currency", "time", "currency", "fx_rate"},
     "cash": {"date", "direction", "description", "amount", "balance_before", "balance_after", "account",
-             "currency"},
+             "currency", "id"},
     "valuations": {"date", "value"},
 }
 _REQUIRED_COLUMNS = {
@@ -36,7 +36,8 @@ _REQUIRED_COLUMNS = {
     "cash": {"date", "description", "amount"},  # no direction column: the sign of amount decides
     "valuations": {"date", "value"},
 }
-_CHECK_KEYS = {"gross_equals_qty_price_fx", "fee_only_same_currency", "balance_chain"}
+_CHECK_KEYS = {"gross_equals_qty_price_fx", "fee_only_same_currency", "balance_chain",
+               "equals", "total_sums"}
 _RULE_KEYS = {"pattern", "direction", "type", "group"}
 # "ignore": a recognised row that is not written (its effect comes from another export).
 # "buy"/"sell": a trade settlement described in the text (quantity and price captured by the pattern).
@@ -78,6 +79,7 @@ class FormatSpec:
     keys: tuple[str, ...] = ()  # header with repeated names numbered: Waluta[1], Waluta[2]
     preamble: bool = False      # free text may precede the header row
     overflow_column: str = ""   # column that may contain unquoted delimiters
+    total_row: str = ""         # column that is empty only in the last row: a summary row
 
     def __post_init__(self) -> None:
         if not self.keys:
@@ -125,6 +127,14 @@ def parse_spec(data: dict, where: str) -> FormatSpec:
     _require(data.get("decimal") in (",", "."), where, "decimal must be ',' or '.'")
     checks = dict(data.get("checks") or {})
     _require(not set(checks) - _CHECK_KEYS, where, f"unknown checks {sorted(set(checks) - _CHECK_KEYS)}")
+    equals = checks.get("equals", {})
+    _require(isinstance(equals, dict) and all(k in keys and isinstance(v, str) for k, v in equals.items()),
+             where, "checks.equals maps header columns to the only accepted value")
+    total_row = data.get("total_row", "")
+    _require(not total_row or total_row in keys, where, f"total_row {total_row!r} is not in the header")
+    sums = checks.get("total_sums", [])
+    _require(isinstance(sums, list) and set(sums) <= set(columns) and (total_row or not sums), where,
+             "checks.total_sums lists mapped columns (e.g. gross, fee) and needs total_row")
     currency = data.get("currency", "column")
     if kind == "valuations":
         # broker_valuations.csv holds value_pln only: the format must state PLN explicitly
@@ -184,6 +194,7 @@ def parse_spec(data: dict, where: str) -> FormatSpec:
         keys=keys,
         preamble=bool(data.get("preamble", False)),
         overflow_column=overflow,
+        total_row=total_row,
     )
 
 

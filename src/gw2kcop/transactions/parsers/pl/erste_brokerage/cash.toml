@@ -1,0 +1,54 @@
+# Erste Brokerage: "Historia_operacji_<ts>.csv", cash variant
+# Format notes: research/formats/erste-bm-2026-11.md, section 2 (sample 2026-11-03).
+# UTF-8 BOM, CRLF, ';', decimal comma, date only. No account number in the file.
+# "Id operacji" is unique: it is the key.
+#
+# Trade settlements (NOT/ZLC/PW: one row with the value, one with the fee) are not
+# imported here: trades and fees come from Raport_transakcji.
+format = "erste_brokerage.cash"
+institution = "erste_brokerage"
+kind = "cash"
+delimiter = ";"
+decimal = ","
+timezone = "Europe/Warsaw"
+datetime_format = "DD-MM-YYYY"
+currency = "column"
+header = ["Data operacji", "Typ operacji", "Kwota", "Waluta Kwota", "Opis", "Saldo po operacji",
+          "Waluta Saldo po operacji", "Id operacji"]
+
+[columns]
+date = "Data operacji"
+direction = "Typ operacji"
+amount = "Kwota"
+currency = "Waluta Kwota"
+description = "Opis"
+id = "Id operacji"
+
+[directions]
+"Uznanie" = "credit"
+"Obciążenie" = "debit"
+
+# First matching rule wins. Anything not matched stops the import of the file
+# (withdrawals, fees outside trades and foreign dividends are not sampled yet).
+[[rules]]
+pattern = '^NOT: \d+ ZLC: \d+ PW: [A-Z]{2}[A-Z0-9]{9}[0-9]$'
+type = "ignore"               # trade value or fee: comes from Raport_transakcji
+
+[[rules]]
+pattern = '^Dywidenda: DP: (?P<dp>\d{4}-\d{2}-\d{2}) (?P<isin>[A-Z]{2}[A-Z0-9]{9}[0-9]) \([^()]+\);?$'
+direction = "credit"
+type = "dividend"
+group = "div:{isin}:{dp}"
+
+[[rules]]
+pattern = '^Podatek od dywidendy: DP: (?P<dp>\d{4}-\d{2}-\d{2}) (?P<isin>[A-Z]{2}[A-Z0-9]{9}[0-9]) \([^()]+\);?$'
+direction = "debit"
+type = "tax"
+group = "div:{isin}:{dp}"
+
+# Deposit titles are free text (seen: the sender's transfer title). Broker wording
+# must not end up here as a deposit, so texts starting with typical broker words stop the import.
+[[rules]]
+pattern = '^(?!(?i:dywidenda|podatek|prowizja|opłata|odsetki|zwrot|korekta|NOT:)).'
+direction = "credit"
+type = "deposit"              # internal transfers: plan 2.4

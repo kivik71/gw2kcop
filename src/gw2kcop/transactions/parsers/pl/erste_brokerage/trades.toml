@@ -1,0 +1,43 @@
+# Erste Brokerage (ex-Santander BM): "Raport_transakcji_<ts>.csv" (trade report)
+# Format notes: research/formats/erste-bm-2026-11.md, section 1 (sample 2026-11-03, WSE sales only).
+# UTF-8 BOM, CRLF, ';', decimal comma, local time, last row = summary (empty time).
+# No account number in the file: the account comes from the folder.
+# Buys ("Kupno" expected) and foreign trades are not sampled yet: any other side
+# or status stops the import of the file.
+format = "erste_brokerage.trades"
+institution = "erste_brokerage"
+kind = "trades"
+delimiter = ";"
+decimal = ","
+timezone = "Europe/Warsaw"
+datetime_format = "DD-MM-YYYY HH:MM:SS"
+currency = "column"
+total_row = "Czas zawarcia"
+header = ["Czas zawarcia", "Walor", "Giełda", "Waluta notowania", "Oferta", "Ilość", "Kurs rozl.",
+          "Waluta Kurs rozl.", "Wartość", "Waluta Wartość", "Prowizja", "Waluta Prowizja",
+          "Numer transakcji", "Status zlecenia", "Data rozliczenia", "Id zlecenia",
+          "Kwota nieopłacona", "Waluta Kwota nieopłacona", "Kurs przewalutowania"]
+
+[columns]
+time = "Czas zawarcia"
+instrument = "Walor"          # exchange ticker name, mapped via instrument_aliases.csv
+market = "Giełda"
+side = "Oferta"
+quantity = "Ilość"
+price = "Kurs rozl."
+price_currency = "Waluta Kurs rozl."
+gross = "Wartość"             # rounded to the grosz (5 x 0.145 = 0.73)
+currency = "Waluta Wartość"
+fee = "Prowizja"
+fee_currency = "Waluta Prowizja"
+fx_rate = "Kurs przewalutowania"
+
+[sides]
+"Sprzedaż" = "sell"
+
+[checks]
+gross_equals_qty_price_fx = true
+total_sums = ["gross", "fee"]
+
+[checks.equals]
+"Status zlecenia" = "Zrealizowane"

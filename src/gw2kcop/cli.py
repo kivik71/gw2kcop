@@ -10,6 +10,7 @@ import argparse
 import re
 import sys
 from collections.abc import Sequence
+from datetime import date
 from pathlib import Path
 
 from gw2kcop import __version__
@@ -21,9 +22,7 @@ OK = 0
 ERROR = 1
 NOT_IMPLEMENTED_EXIT = 2
 
-NOT_IMPLEMENTED: dict[str, str] = {
-    "prices": "download daily closing prices into prices.csv",
-}
+NOT_IMPLEMENTED: dict[str, str] = {}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -90,6 +89,28 @@ def build_parser() -> argparse.ArgumentParser:
     fx.add_argument("--from", dest="start", metavar="YYYY-MM-DD", help="first day (default: see above)")
     fx.add_argument("--to", dest="end", metavar="YYYY-MM-DD", help="last day (default: today)")
     fx.add_argument("--dry-run", action="store_true", help="download and check only; write nothing")
+
+    prices = sub.add_parser(
+        "prices", help="daily prices into prices.csv (Yahoo download, fund files)",
+        description="Fill <data>/prices.csv: 'download' gets closing prices from Yahoo for "
+        "instruments with price_source=yahoo; 'import' reads a fund price file (BAMOSZ CSV).")
+    prices_sub = prices.add_subparsers(dest="action", metavar="ACTION", required=True)
+    dl = prices_sub.add_parser(
+        "download", help="download closing prices from Yahoo (needs: pip install yfinance)",
+        description="By default: every price_source=yahoo instrument in transactions.csv or "
+        "prices.csv, from the day after its last known price (or a week before its first "
+        "transaction) to today.")
+    dl.add_argument("--tickers", metavar="WSE:PKN,ETR:EUNL", help="only these tickers")
+    dl.add_argument("--from", dest="start", metavar="YYYY-MM-DD", help="first day (default: see above)")
+    dl.add_argument("--to", dest="end", metavar="YYYY-MM-DD", help="last day (default: today)")
+    dl.add_argument("--dry-run", action="store_true", help="download and check only; write nothing")
+    pim = prices_sub.add_parser(
+        "import", help="import a fund price history file (BAMOSZ CSV)",
+        description="Read a price history exported by hand (today: BAMOSZ CSV) for one ticker "
+        "from instruments.csv and add its prices to prices.csv.")
+    pim.add_argument("path", help="the exported file")
+    pim.add_argument("--ticker", required=True, help="ticker in instruments.csv, e.g. VIG181EUR")
+    pim.add_argument("--dry-run", action="store_true", help="check only; write nothing")
 
     for name, help_text in NOT_IMPLEMENTED.items():
         sub.add_parser(name, help=help_text, description=help_text)
@@ -234,7 +255,7 @@ def _mask(text: str) -> str:
 
 
 def _cmd_fx(args: argparse.Namespace) -> int:
-    from datetime import date, datetime, timedelta
+    from datetime import datetime, timedelta
 
     from gw2kcop.fx import nbp
     from gw2kcop.fx import rates as fx
@@ -264,6 +285,113 @@ def _cmd_fx(args: argparse.Namespace) -> int:
     added, already = fx.merge(path, found, dry_run=args.dry_run)
     verb = "would add" if args.dry_run else "added"
     print(f"{fx.FILE_NAME}: {verb} {added}, already known {already}")
+    if args.dry_run:
+        print("Dry run: nothing was written.")
+    return OK
+
+
+def _price_tickers(config, wanted: str | None):
+    """price_source=yahoo instruments to download, with their first transaction date."""
+    from gw2kcop.prices import store
+    from gw2kcop.transactions.master import read_master
+    from gw2kcop.transactions.reference import load_reference
+
+    reference = load_reference(config.data_dir)
+    first: dict[str, date] = {}
+    for row in read_master(config.data_dir / "transactions.csv"):
+        if row["instrument"]:
+            day = date.fromisoformat(row["date"])
+            first[row["instrument"]] = min(first.get(row["instrument"], day), day)
+    if wanted:
+        names = sorted({t.strip() for t in wanted.split(",") if t.strip()})
+    else:
+        known = {t for _, t in store.read_prices(config.data_dir / store.FILE_NAME)}
+        names = sorted(t for t in set(first) | known
+                       if reference.tickers.get(t, {}).get("price_source") == "yahoo")
+    errors = []
+    out = []
+    for name in names:
+        row = reference.tickers.get(name)
+        if row is None:
+            errors.append(f"{name}: not a ticker in instruments.csv")
+        elif row.get("price_source") != "yahoo" or not row.get("source_symbol"):
+            errors.append(f"{name}: instruments.csv needs price_source=yahoo and a source_symbol")
+        else:
+            out.append((name, row["source_symbol"], row.get("currency", ""), first.get(name)))
+    if errors:
+        raise ValueError("\n  ".join(["cannot download:", *errors]))
+    return out
+
+
+def _cmd_prices(args: argparse.Namespace) -> int:
+    from datetime import datetime, timedelta
+
+    from gw2kcop.prices import store
+
+    config = load_config(args.config)
+    path = config.data_dir / store.FILE_NAME
+    if args.action == "import":
+        return _cmd_prices_import(args, config, path)
+    from gw2kcop.prices import yahoo
+
+    try:
+        start = date.fromisoformat(args.start) if args.start else None
+        end = date.fromisoformat(args.end) if args.end else datetime.now(config.timezone).date()
+    except ValueError:
+        raise ValueError("dates must be YYYY-MM-DD") from None
+    targets = _price_tickers(config, args.tickers)
+    if not targets:
+        print("No price_source=yahoo instrument in transactions.csv; nothing to download (use --tickers).")
+        return OK
+    known = store.last_known(path)
+    found: list[store.Price] = []
+    failed = 0
+    for ticker, symbol, expected, first in targets:
+        begin = start or (known[ticker] + timedelta(days=1) if ticker in known
+                          else (first - timedelta(days=7) if first else end - timedelta(days=7)))
+        if begin > end:
+            print(f"  {ticker} ({symbol}): up to date")
+            continue
+        try:
+            currency, rows = yahoo.fetch(symbol, begin, end)
+            if rows and expected and currency != expected:
+                raise store.PriceError(f"Yahoo {symbol}: currency {currency}, instruments.csv says {expected}")
+        except store.PriceError as exc:
+            failed += 1
+            print(f"! {ticker}: {exc}")
+            continue
+        print(f"  {ticker} ({symbol}): {len(rows)} price(s) {begin} .. {end} {currency if rows else ''}".rstrip())
+        found.extend(store.Price(day, ticker, price, currency, yahoo.SOURCE) for day, price in rows)
+    added, already = store.merge(path, found, dry_run=args.dry_run)
+    verb = "would add" if args.dry_run else "added"
+    print(f"{store.FILE_NAME}: {verb} {added}, already known {already}")
+    if failed:
+        print(f"{failed} ticker(s) failed; the others were {'checked' if args.dry_run else 'saved'}.")
+    if args.dry_run:
+        print("Dry run: nothing was written.")
+    return ERROR if failed else OK
+
+
+def _cmd_prices_import(args: argparse.Namespace, config, path) -> int:
+    from gw2kcop.prices import bamosz, store
+    from gw2kcop.transactions.reference import load_reference
+
+    reference = load_reference(config.data_dir)
+    row = reference.tickers.get(args.ticker)
+    if row is None:
+        raise ValueError(f"{args.ticker!r} is not a ticker in instruments.csv")
+    source = Path(args.path).expanduser()
+    _require_exists(source)
+    history = bamosz.read_history(source)
+    if row.get("currency") and row["currency"] != history.currency:
+        raise ValueError(f"{source.name}: prices in {history.currency}, instruments.csv says "
+                         f"{args.ticker} is in {row['currency']}")
+    prices = [store.Price(day, args.ticker, price, history.currency, bamosz.SOURCE) for day, price in history.rows]
+    span = f"{history.rows[0][0]} .. {history.rows[-1][0]}" if history.rows else "no prices"
+    print(f"  {source.name}: {history.name} {history.series}, {len(prices)} price(s) {span} {history.currency}")
+    added, already = store.merge(path, prices, dry_run=args.dry_run)
+    verb = "would add" if args.dry_run else "added"
+    print(f"{store.FILE_NAME}: {verb} {added}, already known {already} ({args.ticker})")
     if args.dry_run:
         print("Dry run: nothing was written.")
     return OK
@@ -360,6 +488,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _cmd_transactions(args)
         if args.command == "fx":
             return _cmd_fx(args)
+        if args.command == "prices":
+            return _cmd_prices(args)
     except (ConfigError, AccountsError, ValueError) as exc:
         print(f"gw2kcop {args.command}: {exc}", file=sys.stderr)
         return ERROR

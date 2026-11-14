@@ -76,6 +76,11 @@ def build_parser() -> argparse.ArgumentParser:
     which.add_argument("--start", action="store_true", help="import _start/ (full histories)")
     imp.add_argument("--dry-run", action="store_true", help="parse and check only; write and move nothing")
     imp.add_argument("--account", metavar="ID", help="only this account_id")
+    opening = tx_sub.add_parser(
+        "opening", help="add manual opening balances from <data>/opening_balances.csv",
+        description="Add positions and cash held before the known history (rows of "
+        "<data>/opening_balances.csv) to transactions.csv as type opening_balance.")
+    opening.add_argument("--dry-run", action="store_true", help="check only; write nothing")
 
     for name, help_text in NOT_IMPLEMENTED.items():
         sub.add_parser(name, help=help_text, description=help_text)
@@ -219,7 +224,35 @@ def _mask(text: str) -> str:
     return re.sub(r"[0-9]{6,}", "…", text)
 
 
+def _cmd_opening(args: argparse.Namespace) -> int:
+    from gw2kcop.transactions import master
+    from gw2kcop.transactions.opening import FILE_NAME, OpeningError, read_opening
+    from gw2kcop.transactions.reference import load_reference
+
+    config = load_config(args.config)
+    accounts = load_accounts(config.accounts_file)
+    path = config.data_dir / FILE_NAME
+    _require_exists(path)
+    try:
+        txs = read_opening(path, accounts, load_reference(config.data_dir))
+    except OpeningError as exc:
+        print(f"! {FILE_NAME}: NOT imported")
+        for line in exc.errors:
+            print(f"    {line}")
+        return ERROR
+    if args.dry_run:
+        added, known = master.count_new(config.data_dir, txs)
+        print(f"  {FILE_NAME}: would add {added}, already known {known} (opening_balance)")
+        print("Dry run: nothing was written.")
+        return OK
+    result = master.merge(config.data_dir, txs, FILE_NAME)
+    print(f"  {FILE_NAME}: added {result.added}, already known {result.skipped} (opening_balance)")
+    return OK
+
+
 def _cmd_transactions(args: argparse.Namespace) -> int:
+    if args.action == "opening":
+        return _cmd_opening(args)
     from gw2kcop.transactions.formats import builtin_specs
     from gw2kcop.transactions.importer import import_folder
     from gw2kcop.transactions.reference import load_reference

@@ -1,0 +1,62 @@
+# Bossa (DM BOŚ, classic system): "financeHistory.csv" (cash history)
+# Format notes: research/formats/xtb-and-bossa-2026-11.md, section 2 (samples 2026-11-03, IKE account).
+# UTF-8 with BOM, LF, ';', decimal comma, one header row, date only, signed amounts.
+#
+# Trades come from this file, not from hisPW.csv: the settlement text holds the ISIN,
+# quantity, price and order number, and the settlement amount includes the commission
+# (fee = settlement - quantity x price). hisPW.csv has no ISIN and is not imported.
+# Settlement and prices are in PLN also for foreign ETFs (converted by the broker).
+format = "bossa.finance_history"
+institution = "bossa"
+kind = "cash"
+delimiter = ";"
+decimal = ","
+timezone = "Europe/Warsaw"
+datetime_format = "DD.MM.YYYY"
+currency = "column"
+header = ["Data", "Rachunek", "Waluta", "Tytuł operacji", "Wartość"]
+
+[columns]
+date = "Data"
+account = "Rachunek"          # e.g. "IKE <number>": must equal export_identifier when that is set
+currency = "Waluta"
+description = "Tytuł operacji"
+amount = "Wartość"
+
+# First matching rule wins. Anything not matched stops the import of the file
+# (seen only on an IKE account: withdrawals, dividend tax and fees not sampled yet).
+[[rules]]
+# The ticker after the ISIN is missing for some WSE instruments (e.g. Beta ETFs).
+pattern = '^Rozliczenie transakcji kupna: .+ \((?P<isin>[A-Z]{2}[A-Z0-9]{9}[0-9])\) (?:\S+ )?(?P<quantity>\d+\.\d+) x (?P<price>\d+\.\d+) (?P<price_currency>[A-Z]{3}) nr [A-Z0-9]+$'
+type = "buy"
+
+[[rules]]
+pattern = '^Rozliczenie transakcji sprzedaży: .+ \((?P<isin>[A-Z]{2}[A-Z0-9]{9}[0-9])\) (?:\S+ )?(?P<quantity>\d+\.\d+) x (?P<price>\d+\.\d+) (?P<price_currency>[A-Z]{3}) nr [A-Z0-9]+$'
+type = "sell"
+
+[[rules]]
+pattern = '^Przelew do DM BOŚ$'
+direction = "credit"
+type = "deposit"              # internal transfers: plan 2.4
+
+[[rules]]
+pattern = '^Wypłata dywidendy brutto (?P<alias>\S+) PLN$'
+direction = "credit"
+type = "dividend"             # gross; on IKE no tax row
+
+[[rules]]
+pattern = '^Wypłata dywidendy netto (?P<alias>\S+) \d+% PLN$'
+direction = "credit"
+type = "dividend"             # after foreign withholding tax (the % is the part paid out)
+
+[[rules]]
+# Bossa writes the literal word TEXT instead of the instrument for some dividends
+# (3 rows in the sample). The instrument stays empty.
+pattern = '^Wypłata dywidendy TEXT$'
+direction = "credit"
+type = "dividend"
+
+[[rules]]
+pattern = '^Wypłata dywidendy (?!brutto |netto )(?P<alias>\S+)$'
+direction = "credit"
+type = "dividend"

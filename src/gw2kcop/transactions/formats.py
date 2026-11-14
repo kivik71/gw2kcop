@@ -27,7 +27,8 @@ _TOP_KEYS = {
 _COLUMN_KEYS = {
     "trades": {"instrument", "market", "side", "quantity", "price", "price_currency",
                "gross", "fee", "fee_currency", "time", "currency", "fx_rate"},
-    "cash": {"date", "direction", "description", "amount", "balance_before", "balance_after"},
+    "cash": {"date", "direction", "description", "amount", "balance_before", "balance_after", "account",
+             "currency"},
     "valuations": {"date", "value"},
 }
 _REQUIRED_COLUMNS = {
@@ -38,7 +39,10 @@ _REQUIRED_COLUMNS = {
 _CHECK_KEYS = {"gross_equals_qty_price_fx", "fee_only_same_currency", "balance_chain"}
 _RULE_KEYS = {"pattern", "direction", "type", "group"}
 # "ignore": a recognised row that is not written (its effect comes from another export).
-_RULE_TYPES = {"deposit", "withdrawal", "dividend", "interest", "fee", "tax", "charge", "other", "ignore"}
+# "buy"/"sell": a trade settlement described in the text (quantity and price captured by the pattern).
+_RULE_TYPES = {"deposit", "withdrawal", "dividend", "interest", "fee", "tax", "charge", "other", "ignore",
+               "buy", "sell"}
+_TRADE_DIRECTION = {"buy": "debit", "sell": "credit"}
 
 
 class FormatError(ValueError):
@@ -127,6 +131,7 @@ def parse_spec(data: dict, where: str) -> FormatSpec:
         _require(currency == "PLN", where, "valuations need currency = 'PLN'")
     else:
         _require(currency in ("column", "account"), where, "currency must be 'column' or 'account'")
+        _require(currency != "column" or "currency" in columns, where, "currency = 'column' needs a currency column")
     if kind == "trades":
         sides = dict(data.get("sides") or {})
         _require(sides and set(sides.values()) <= {"buy", "sell"}, where, "sides must map to buy/sell")
@@ -149,6 +154,14 @@ def parse_spec(data: dict, where: str) -> FormatSpec:
                 pattern = re.compile(raw["pattern"])
             except (KeyError, re.error) as exc:
                 raise FormatError(f"{where}: rule {n}: bad pattern ({exc})") from None
+            groups = set(pattern.groupindex)
+            if raw["type"] in _TRADE_DIRECTION:
+                _require({"quantity", "price"} <= groups and groups & {"isin", "alias"}, where,
+                         f"rule {n}: a {raw['type']} pattern must capture quantity, price and isin or alias")
+                _require(direction in ("any", _TRADE_DIRECTION[raw["type"]]), where,
+                         f"rule {n}: a {raw['type']} is a {_TRADE_DIRECTION[raw['type']]}")
+                direction = _TRADE_DIRECTION[raw["type"]]
+            _require(not {"isin", "alias"} <= groups, where, f"rule {n}: capture isin or alias, not both")
             rules.append(Rule(pattern, direction, raw["type"], raw.get("group", "")))
         _require(rules, where, "cash formats need [[rules]]")
     return FormatSpec(

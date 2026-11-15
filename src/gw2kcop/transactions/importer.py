@@ -208,7 +208,10 @@ def import_file(path: Path, account: Account, specs: list[FormatSpec], reference
     if spec.kind == "valuations":
         return _import_valuations(path, text, spec, account, config, dry_run, result)
     try:
-        txs = parse_export(text, spec, account, reference, config.timezone, path.name)
+        warnings: list[str] = []
+        txs = parse_export(text, spec, account, reference, config.timezone, path.name, warnings)
+        if warnings:
+            result.note = "WARNING " + "\n    WARNING ".join(warnings)
         if dry_run:
             result.added, result.skipped = master.count_new(config.data_dir, txs)
             result.status = "checked"

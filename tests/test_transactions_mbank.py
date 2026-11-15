@@ -135,6 +135,26 @@ def test_trades_ignore_the_file_name():
     assert trade.currency == "PLN"  # trades take the settlement currency column
 
 
+GAP = CASH.replace("WPŁATA NA IKE;100,00;0,00;100,00", "WPŁATA NA IKE;90,00;0,00;90,00")
+
+
+def test_cash_balance_continuity():
+    warnings = []
+    parse_export(CASH, spec("cash"), ACCOUNT, REF, WARSAW, "", warnings)
+    assert warnings == []
+    rows = parse_export(GAP, spec("cash"), ACCOUNT, REF, WARSAW, "", warnings)
+    assert len(rows) == 3  # a gap is a warning: the rows are still imported
+    assert warnings == [("line 3: balance gap of 10.00 between 2026-05-10 and 2026-05-22 "
+                         "(closing 90.00, next opening 100.00): an operation is missing from the export")]
+
+
+def test_cash_balance_continuity_oldest_first():
+    header, *rows = GAP.lstrip("\ufeff").strip().split("\r\n")
+    warnings = []
+    parse_export(export(header, rows[::-1]), spec("cash"), ACCOUNT, REF, WARSAW, "", warnings)
+    assert len(warnings) == 1 and "gap of 10.00 between 2026-05-10 and 2026-05-22" in warnings[0]
+
+
 def test_cash_balance_chain_fails_closed():
     bad = CASH.replace("100,00;0,00;100,00", "100,00;0,00;100,01")
     with pytest.raises(ParseError, match="balance check"):
@@ -211,6 +231,14 @@ def test_import_dry_run_then_real_then_reimport(setup, capsys):
     write(again / "Historia transakcji 9.csv", TRADES.lstrip("﻿"), bom=True)
     assert main([*cfg, "transactions", "import", "2026-06"]) == 0
     assert "added 0, already known 4" in capsys.readouterr().out
+
+
+def test_import_prints_balance_gap(setup, capsys):
+    cfg, _data, month = setup
+    write(month / "Historia operacji finansowych 2.csv", GAP.lstrip("\ufeff"), bom=True)
+    assert main([*cfg, "transactions", "import", "2026-05", "--dry-run"]) == 1  # trades file lacks an alias
+    out = capsys.readouterr().out
+    assert "would add 3" in out and "WARNING line 3: balance gap of 10.00" in out
 
 
 def test_import_unknown_header(setup, capsys):

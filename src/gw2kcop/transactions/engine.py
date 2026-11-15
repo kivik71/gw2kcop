@@ -12,6 +12,7 @@ import io
 import re
 from dataclasses import dataclass, field
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+from itertools import pairwise
 from zoneinfo import ZoneInfo
 
 from gw2kcop.accounts import Account
@@ -45,6 +46,7 @@ class _Ctx:
     local_tz: ZoneInfo
     file_currency: str = ""
     errors: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
     missing: set[str] = field(default_factory=set)
 
     def fail(self, line: int, message: str) -> None:
@@ -187,8 +189,26 @@ def _trades(ctx: _Ctx, rows) -> list[Transaction]:
     return out
 
 
+def _continuity(ctx: _Ctx, chain: list[tuple[int, object, Decimal, Decimal]]) -> None:
+    """Warn where one row's closing balance is not the next row's opening balance.
+
+    Each row can be right on its own (opening + amount = closing) while an operation is
+    missing between two rows; the bank export then has a gap the owner must fill by hand.
+    Files list operations newest first or oldest first; the dates tell which.
+    """
+    if len(chain) < 2:
+        return
+    ordered = chain if chain[0][1] <= chain[-1][1] else chain[::-1]  # oldest first
+    for (_l0, d0, _b0, end), (line, d1, start, _b1) in pairwise(ordered):
+        if start != end:
+            ctx.warnings.append(
+                f"line {line}: balance gap of {start - end} between {d0} and {d1} "
+                f"(closing {end}, next opening {start}): an operation is missing from the export")
+
+
 def _cash(ctx: _Ctx, rows) -> list[Transaction]:
     spec, cols, out = ctx.spec, ctx.spec.columns, []
+    chain: list[tuple[int, object, Decimal, Decimal]] = []
     for line, row, _raw in rows:
         before = len(ctx.errors)
         amount = _num(ctx, row, "amount", line)
@@ -217,6 +237,7 @@ def _cash(ctx: _Ctx, rows) -> list[Transaction]:
             if b0 + amount != b1:
                 ctx.fail(line, f"balance check failed: {b0} + {amount} != {b1}")
                 continue
+            chain.append((line, day, b0, b1))
         if "account" in cols and ctx.account.export_identifier \
                 and row[cols["account"]] != ctx.account.export_identifier:
             ctx.fail(line, "the account in the file is not this account's export_identifier")
@@ -254,6 +275,7 @@ def _cash(ctx: _Ctx, rows) -> list[Transaction]:
             amount=amount, currency=currency, description=text, group_id=group, **trade,
             source_id=row[cols["id"]] if "id" in cols else "",
         ))
+    _continuity(ctx, chain)
     return out
 
 
@@ -321,8 +343,11 @@ def currency_in_name(file_name: str) -> str:
 
 
 def parse_export(text: str, spec: FormatSpec, account: Account, reference: Reference,
-                 local_tz: ZoneInfo, file_name: str = "") -> list[Transaction]:
-    """Parse one export file. Raises ``ParseError`` listing every problem found."""
+                 local_tz: ZoneInfo, file_name: str = "", warnings: list[str] | None = None) -> list[Transaction]:
+    """Parse one export file. Raises ``ParseError`` listing every problem found.
+
+    Problems that do not stop the import (e.g. a balance gap) are appended to ``warnings``.
+    """
     ctx = _Ctx(spec, account, reference, local_tz)
     if spec.currency == "file_name":
         ctx.file_currency = currency_in_name(file_name)
@@ -337,4 +362,6 @@ def parse_export(text: str, spec: FormatSpec, account: Account, reference: Refer
     txs = _trades(ctx, rows) if spec.kind == "trades" else _cash(ctx, rows)
     if ctx.errors or ctx.missing:
         raise ParseError(ctx.errors, sorted(ctx.missing))
+    if warnings is not None:
+        warnings.extend(ctx.warnings)
     return txs

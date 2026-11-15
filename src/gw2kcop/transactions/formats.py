@@ -69,7 +69,7 @@ class FormatSpec:
     timezone: str
     datetime_format: str
     date_only: bool
-    currency: str  # "column" or "account"
+    currency: str  # "column", "account" or "file_name" (a currency code in the file name, else the account's)
     columns: dict[str, str]
     sides: dict[str, str] = field(default_factory=dict)
     directions: dict[str, str] = field(default_factory=dict)
@@ -140,7 +140,8 @@ def parse_spec(data: dict, where: str) -> FormatSpec:
         # broker_valuations.csv holds value_pln only: the format must state PLN explicitly
         _require(currency == "PLN", where, "valuations need currency = 'PLN'")
     else:
-        _require(currency in ("column", "account"), where, "currency must be 'column' or 'account'")
+        _require(currency in ("column", "account", "file_name"), where,
+                 "currency must be 'column', 'account' or 'file_name'")
         _require(currency != "column" or "currency" in columns, where, "currency = 'column' needs a currency column")
     if kind == "trades":
         sides = dict(data.get("sides") or {})

@@ -1,6 +1,10 @@
 # mBank eMakler / mDM: "Historia operacji finansowych <ts>.csv"
 # Format notes: research/formats/broker-a-samples-2026-10.md.
-# No currency column: the account currency from accounts.csv is used.
+# No currency column. mDM exports one file per chosen currency (PLN, USD), with the
+# same layout, and the file does not say which. So the currency comes from the file
+# name: put the code in it as a separate word, e.g. "... usd 2026.csv". A name
+# without a currency code means the account currency from accounts.csv.
+# Export "without orders" (bez zleceń); trades come from "Historia transakcji".
 # Trades are NOT in this file (their cash effect comes from "Historia transakcji").
 format = "mbank_brokerage.cash"
 institution = "mbank_brokerage"
@@ -10,7 +14,7 @@ decimal = ","
 timezone = "Europe/Warsaw"
 datetime_format = "DD.MM.YYYY HH:MM:SS"
 date_only = true              # time is always 00:00:00
-currency = "account"
+currency = "file_name"
 header = ["Data księgowania", "Typ operacji", "Opis", "Kwota", "Saldo początkowe", "Saldo końcowe"]
 
 [columns]

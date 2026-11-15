@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import csv
 import io
+import re
 from dataclasses import dataclass, field
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from zoneinfo import ZoneInfo
@@ -42,6 +43,7 @@ class _Ctx:
     account: Account
     reference: Reference
     local_tz: ZoneInfo
+    file_currency: str = ""
     errors: list[str] = field(default_factory=list)
     missing: set[str] = field(default_factory=set)
 
@@ -120,6 +122,8 @@ def _num(ctx: _Ctx, row: dict[str, str], key: str, line: int, optional: bool = F
 def _currency(ctx: _Ctx, row: dict[str, str], line: int) -> str:
     if ctx.spec.currency == "account":
         return ctx.account.currency
+    if ctx.spec.currency == "file_name":
+        return ctx.file_currency or ctx.account.currency
     value = row[ctx.spec.columns["currency"]]
     if len(value) != 3 or not value.isalpha() or not value.isupper():
         ctx.fail(line, f"invalid currency {value!r}")
@@ -301,10 +305,27 @@ def _summary(ctx: _Ctx, rows):
     return rows
 
 
+# Currency codes recognised in a file name (format option currency = "file_name").
+FILE_NAME_CURRENCIES = frozenset({"PLN", "USD", "EUR", "GBP", "CHF", "DKK", "SEK", "NOK", "CZK", "HUF",
+                                  "JPY", "CAD", "AUD"})
+
+
+def currency_in_name(file_name: str) -> str:
+    """The one currency code written as a separate word in ``file_name`` (any case), or ""."""
+    stem = file_name.rsplit(".", 1)[0]
+    found = {w.upper() for w in re.findall(r"(?<![A-Za-z])[A-Za-z]{3}(?![A-Za-z])", stem)}
+    codes = sorted(found & FILE_NAME_CURRENCIES)
+    if len(codes) > 1:
+        raise ParseError([f"file name names several currencies ({', '.join(codes)}); keep one"], [])
+    return codes[0] if codes else ""
+
+
 def parse_export(text: str, spec: FormatSpec, account: Account, reference: Reference,
-                 local_tz: ZoneInfo) -> list[Transaction]:
+                 local_tz: ZoneInfo, file_name: str = "") -> list[Transaction]:
     """Parse one export file. Raises ``ParseError`` listing every problem found."""
     ctx = _Ctx(spec, account, reference, local_tz)
+    if spec.currency == "file_name":
+        ctx.file_currency = currency_in_name(file_name)
     rows = read_rows(text, spec)
     rows = _summary(ctx, rows)
     for column, value in spec.checks.get("equals", {}).items():

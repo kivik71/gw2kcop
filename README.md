@@ -59,7 +59,7 @@ Complex formats get Python code.
 
 | Institution | Export | Approach |
 |---|---|---|
-| mBank eMakler / mDM | transaction and cash history (CSV); valuation history planned | TOML, **works** |
+| mBank eMakler / mDM | transaction and cash history (CSV; a cash file in another currency than the account's needs the code in its name, e.g. `... usd 2026.csv`); valuation history planned | TOML, **works** |
 | Erste Brokerage (PL) | trade report and cash history (CSV); securities history and holdings report are not needed | TOML, **works** on synthetic data (WSE sales, dividends, deposits; buys not sampled yet) |
 | Bossa | `financeHistory.csv` (trades, deposits, dividends; `hisPW.csv` is not needed) | TOML, **works** on synthetic data |
 | PPK ING | transaction history (CSV) | TOML |

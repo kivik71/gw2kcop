@@ -113,6 +113,28 @@ def test_cash():
     assert dep.type == "deposit" and dep.currency == "PLN" and dep.timestamp_utc is None
 
 
+@pytest.mark.parametrize("name, currency", [
+    ("Historia operacji finansowych 123 owna usd 2026.csv", "USD"),
+    ("Historia_operacji_finansowych_123_USD.csv", "USD"),
+    ("Historia operacji finansowych 123 owna pln 2026.csv", "PLN"),
+    ("Historia operacji finansowych 123.csv", "PLN"),  # no code: the account currency
+    ("", "PLN"),
+])
+def test_cash_currency_from_file_name(name, currency):
+    rows = parse_export(CASH, spec("cash"), ACCOUNT, REF, WARSAW, name)
+    assert {t.currency for t in rows} == {currency}
+
+
+def test_cash_file_name_with_two_currencies_fails():
+    with pytest.raises(ParseError, match="several currencies"):
+        parse_export(CASH, spec("cash"), ACCOUNT, REF, WARSAW, "operacje usd pln.csv")
+
+
+def test_trades_ignore_the_file_name():
+    (trade, *_rest) = parse_export(TRADES, spec("trades"), ACCOUNT, REF, WARSAW, "transakcje usd.csv")
+    assert trade.currency == "PLN"  # trades take the settlement currency column
+
+
 def test_cash_balance_chain_fails_closed():
     bad = CASH.replace("100,00;0,00;100,00", "100,00;0,00;100,01")
     with pytest.raises(ParseError, match="balance check"):

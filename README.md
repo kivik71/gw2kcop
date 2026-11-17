@@ -77,8 +77,9 @@ is mapped to a ticker through `instrument_aliases.csv` (institution `nn` or `ing
 number (NN) or participant number (ING) is checked against `export_identifier`. Types not seen in a
 sample yet (withdrawals, transfers, additional payments) stop the file. A national fund code in the
 `isin` column of `instruments.csv` (e.g. NN funds) is not copied as an ISIN. An ING "PPK Rebalance" row
-(no amount, units of the one fund held) is skipped only when its units equal all units bought before it
-in the file; otherwise the file stops.
+(no amount; the new fund and its units) becomes two `fund_switch` rows with amount 0 when exactly one
+other fund was held before it (all its units out, the new units in); it is skipped when it only restates
+the units of the same fund. Anything else stops the file.
 
 ## Opening balances
 Positions bought before the history an export can show (and cash at the start) go into

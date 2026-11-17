@@ -64,8 +64,14 @@ ING_TYPES = {
     "PPK Primary employee's payment": "ppk_employee",
     "PPK Primary employer's payment": "ppk_employer",
     "PPK Annual payment": "ppk_state",
+    "PPK Welcome payment": "ppk_state",
 }
+# A rebalance row has no amount and the number of units of the one fund held (seen once, 2025-10-05).
+# It is accepted only when those units equal every unit bought before it in the file: then nothing
+# changed and no row is written. Anything else stops the file.
+ING_REBALANCE = "PPK Rebalance"
 
+_ISIN_RE = re.compile(r"^[A-Z]{2}[A-Z0-9]{9}\d$")
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _DMY_RE = re.compile(r"^(\d{2})\.(\d{2})\.(\d{4})$")
 
@@ -119,7 +125,9 @@ def _resolve(reference: Reference, institution: str, fund: str, missing: set[str
     if ticker is None:
         missing.add(fund)
         return "", ""
-    return ticker, reference.isin_of(ticker)
+    isin = reference.isin_of(ticker)
+    # A PPK fund may have only a national fund code in the isin column (e.g. "RFe 40"): not an ISIN.
+    return ticker, isin if _ISIN_RE.match(isin) else ""
 
 
 # ---------------------------------------------------------------- NN
@@ -291,6 +299,8 @@ def parse_ing_text(text: str, account: Account, reference: Reference) -> tuple[l
         errors.append(f"account currency is {account.currency}, ING PPK is in {CURRENCY}")
 
     out: list[Transaction] = []
+    bought: list[tuple[date, str, Decimal]] = []
+    rebalances: list[tuple[str, date, str, Decimal]] = []
     for n, raw in enumerate(rows[header_at + 1:], start=header_at + 2):
         if not any(c.strip() for c in raw):
             continue
@@ -300,6 +310,18 @@ def parse_ing_text(text: str, account: Account, reference: Reference) -> tuple[l
             continue
         cells = {k: v.strip() for k, v in zip(ING_HEADER, raw)}
         kind_text = cells["Detailed type of transaction"]
+        if (kind_text, cells["Transaction type"]) == (ING_REBALANCE, "Rebalance"):
+            day = _dmy(cells["Date"])
+            try:
+                units = _text_decimal(cells["Number of units"])
+            except ValueError as exc:
+                errors.append(f"{where}: {exc}")
+                continue
+            if day is None or cells["Amount"] or cells["Transaction status"] != "Complete" or units <= 0:
+                errors.append(f"{where}: rebalance row not understood (date, empty amount, units, status)")
+                continue
+            rebalances.append((where, day, cells["Fund name"], units))
+            continue
         kind = ING_TYPES.get(kind_text)
         if kind is None:
             errors.append(f"{where}: unknown transaction type {kind_text!r} (not seen in a sample yet)")
@@ -332,6 +354,15 @@ def parse_ing_text(text: str, account: Account, reference: Reference) -> tuple[l
         instrument, isin = _resolve(reference, ING_INSTITUTION, fund, missing)
         description = f"{kind_text} (P.U. {cells['P.U. category']})"
         out.extend(_pair(account, ING_INSTITUTION, day, kind, amount, units, price, instrument, isin, description))
+        bought.append((day, fund, units))
+
+    for where, day, fund, units in rebalances:
+        held = sum((u for d, f, u in bought if f == fund and d < day), Decimal(0))
+        if held != units:
+            errors.append(f"{where}: rebalance of {units} units of {fund!r}, but the purchases before {day} in "
+                          f"this file add up to {held} units (export the full history from the first payment)")
+        else:
+            notes.append(f"rebalance on {day}: {units} units of {fund!r} = all units held, no change, not imported")
 
     if errors or missing:
         raise ParseError(errors[:MAX_ERRORS], sorted(missing))

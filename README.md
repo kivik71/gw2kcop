@@ -75,7 +75,10 @@ and `-amount`. Rows carry the valuation date. The account's cash therefore stays
 tell your own payments (`ppk_employee`) from the employer's and the state's. The fund name in the file
 is mapped to a ticker through `instrument_aliases.csv` (institution `nn` or `ing`); the PPK account
 number (NN) or participant number (ING) is checked against `export_identifier`. Types not seen in a
-sample yet (withdrawals, transfers, additional payments) stop the file.
+sample yet (withdrawals, transfers, additional payments) stop the file. A national fund code in the
+`isin` column of `instruments.csv` (e.g. NN funds) is not copied as an ISIN. An ING "PPK Rebalance" row
+(no amount, units of the one fund held) is skipped only when its units equal all units bought before it
+in the file; otherwise the file stops.
 
 ## Opening balances
 Positions bought before the history an export can show (and cash at the start) go into

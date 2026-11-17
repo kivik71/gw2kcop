@@ -218,3 +218,42 @@ def test_cli_imports_both(tmp_path, capsys):
     assert sum(Decimal(r["amount"]) for r in rows) == 0
     assert main(["--config", str(config), "transactions", "import", "2026-11"]) == 0
     assert "No export files found" in capsys.readouterr().out  # files moved to _zaimportowane/
+
+
+def test_national_fund_code_is_not_used_as_isin():
+    r = ref()
+    r.tickers["PPK:T2035"]["isin"] = "RFe 40"  # a national fund code, not an ISIN
+    r.tickers["PPK:T2050"]["isin"] = "PL0000000001"
+    txs, _ = ppk.parse_nn(FIXTURE, NN, r)
+    assert {t.isin for t in txs if t.instrument == "PPK:T2035"} == {""}
+    assert {t.isin for t in txs if t.instrument == "PPK:T2050"} == {"PL0000000001"}
+
+
+def test_ing_welcome_payment_is_state_money():
+    rows = [("27.07.2025", "Complete", "Purchase", "PPK Welcome payment", "PPK", "x", ING_FUND,
+             "250,00", "10,000000", "A")]
+    txs, _ = ppk.parse_ing_text(ing_text(rows), ING, ref())
+    assert [t.type for t in txs] == ["ppk_state", "buy"]
+
+
+def _rebalance(units):
+    return ("05.10.2025", "Complete", "Rebalance", "PPK Rebalance", "PPK", "x", ING_FUND, "", units, "A")
+
+
+def _buy(day, amount, units):
+    return (day, "Complete", "Purchase", "PPK Primary employee's payment", "PPK", "x", ING_FUND, amount, units, "A")
+
+
+def test_ing_rebalance_of_all_units_is_skipped():
+    rows = [_buy("13.10.2025", "100,00", "4,000000"), _rebalance("1 500,500000"),
+            _buy("13.09.2025", "100,00", "500,500000"), _buy("13.08.2025", "1 000,00", "1 000,000000")]
+    txs, notes = ppk.parse_ing_text(ing_text(rows), ING, ref())
+    assert len(txs) == 6 and sum(t.amount for t in txs) == 0
+    assert notes == [(f"rebalance on 2025-10-05: 1500.500000 units of {ING_FUND!r} = all units held, "
+                      "no change, not imported")]
+
+
+def test_ing_rebalance_with_other_units_stops_the_file():
+    rows = [_rebalance("10,000000"), _buy("13.09.2025", "100,00", "4,000000")]
+    with pytest.raises(ParseError, match="add up to 4.000000 units"):
+        ppk.parse_ing_text(ing_text(rows), ING, ref())

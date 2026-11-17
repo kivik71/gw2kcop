@@ -66,9 +66,14 @@ ING_TYPES = {
     "PPK Annual payment": "ppk_state",
     "PPK Welcome payment": "ppk_state",
 }
-# A rebalance row has no amount and the number of units of the one fund held (seen once, 2025-10-05).
-# It is accepted only when those units equal every unit bought before it in the file: then nothing
-# changed and no row is written. Anything else stops the file.
+# A rebalance row has no amount, the new fund and its units (seen once, 2025-10-05: all units of the
+# previous target-date fund moved to the next one; the file has no row for the fund that was sold).
+# Accepted only when, from the purchases before it in the file:
+# - exactly one other fund was held and is never bought again afterwards: two fund_switch rows
+#   (old fund: minus all its units; new fund: plus the rebalance units), amount 0, no price,
+#   because the export gives no value; or
+# - only the same fund was held, with exactly these units: nothing changed, no row is written.
+# Anything else stops the file.
 ING_REBALANCE = "PPK Rebalance"
 
 _ISIN_RE = re.compile(r"^[A-Z]{2}[A-Z0-9]{9}\d$")
@@ -357,12 +362,29 @@ def parse_ing_text(text: str, account: Account, reference: Reference) -> tuple[l
         bought.append((day, fund, units))
 
     for where, day, fund, units in rebalances:
-        held = sum((u for d, f, u in bought if f == fund and d < day), Decimal(0))
-        if held != units:
-            errors.append(f"{where}: rebalance of {units} units of {fund!r}, but the purchases before {day} in "
-                          f"this file add up to {held} units (export the full history from the first payment)")
-        else:
+        held: dict[str, Decimal] = defaultdict(Decimal)
+        for d, f, u in bought:
+            if d < day:
+                held[f] += u
+        others = {f: u for f, u in held.items() if f != fund and u}
+        later = {f for d, f, _ in bought if d > day and f in others}
+        if not others and held.get(fund) == units:
             notes.append(f"rebalance on {day}: {units} units of {fund!r} = all units held, no change, not imported")
+        elif len(others) == 1 and not held.get(fund) and not later:
+            ((old_fund, old_units),) = others.items()
+            group = f"{ING_INSTITUTION}|{account.account_id}|switch:{day.isoformat()}"
+            for name, qty in ((old_fund, -old_units), (fund, units)):
+                instrument, isin = _resolve(reference, ING_INSTITUTION, name, missing)
+                out.append(Transaction(date=day, account_id=account.account_id, institution=ING_INSTITUTION,
+                                       type="fund_switch", amount=Decimal(0), currency=CURRENCY,
+                                       instrument=instrument, isin=isin, quantity=qty,
+                                       description=f"{ING_REBALANCE}: {old_fund} -> {fund} (value not in export)",
+                                       group_id=group))
+            notes.append(f"rebalance on {day}: {old_units} units of {old_fund!r} -> {units} units of {fund!r}")
+        else:
+            found = ", ".join(f"{f}: {u}" for f, u in sorted(held.items())) or "none"
+            errors.append(f"{where}: rebalance to {units} units of {fund!r} not understood; units held before "
+                          f"{day} in this file: {found} (export the full history from the first payment)")
 
     if errors or missing:
         raise ParseError(errors[:MAX_ERRORS], sorted(missing))

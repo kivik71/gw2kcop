@@ -255,5 +255,42 @@ def test_ing_rebalance_of_all_units_is_skipped():
 
 def test_ing_rebalance_with_other_units_stops_the_file():
     rows = [_rebalance("10,000000"), _buy("13.09.2025", "100,00", "4,000000")]
-    with pytest.raises(ParseError, match="add up to 4.000000 units"):
+    with pytest.raises(ParseError, match="units held before 2025-10-05 in this file: Test ING Fund 2045: 4.000000"):
         ppk.parse_ing_text(ing_text(rows), ING, ref())
+
+
+OLD_ING = "Test ING Fund 2030"
+
+
+def _buy_old(day, amount, units):
+    return (day, "Complete", "Purchase", "PPK Primary employer's payment", "PPK", "x", OLD_ING, amount, units, "A")
+
+
+def test_ing_rebalance_from_another_fund_is_a_fund_switch():
+    r = ref()
+    r.tickers["PPK:I2030"] = {"ticker": "PPK:I2030", "isin": ""}
+    r.aliases[("ing", OLD_ING)] = "PPK:I2030"
+    rows = [_buy("13.10.2025", "100,00", "4,000000"), _rebalance("80,000000"),
+            _buy_old("13.09.2025", "500,00", "50,000000"), _buy_old("13.08.2025", "500,00", "50,000000")]
+    txs, notes = ppk.parse_ing_text(ing_text(rows), ING, r)
+    switch = [t for t in txs if t.type == "fund_switch"]
+    assert [(t.instrument, t.quantity, t.amount) for t in switch] == [
+        ("PPK:I2030", Decimal("-100.000000"), 0), ("PPK:I2045", Decimal("80.000000"), 0)]
+    assert switch[0].group_id == switch[1].group_id and switch[0].date == date(2025, 10, 5)
+    held = {}
+    for t in txs:
+        if t.quantity is not None:
+            held[t.instrument] = held.get(t.instrument, 0) + t.quantity
+    assert held == {"PPK:I2030": 0, "PPK:I2045": Decimal("84.000000")}
+    assert notes == [(f"rebalance on 2025-10-05: 100.000000 units of {OLD_ING!r} -> "
+                      f"80.000000 units of {ING_FUND!r}")]
+
+
+def test_ing_rebalance_stops_when_the_old_fund_is_bought_again():
+    r = ref()
+    r.tickers["PPK:I2030"] = {"ticker": "PPK:I2030", "isin": ""}
+    r.aliases[("ing", OLD_ING)] = "PPK:I2030"
+    rows = [_buy_old("13.10.2025", "100,00", "4,000000"), _rebalance("80,000000"),
+            _buy_old("13.09.2025", "500,00", "50,000000")]
+    with pytest.raises(ParseError, match="not understood"):
+        ppk.parse_ing_text(ing_text(rows), ING, r)

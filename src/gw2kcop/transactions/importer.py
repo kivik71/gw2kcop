@@ -19,7 +19,7 @@ from pathlib import Path
 from gw2kcop.accounts import Account
 from gw2kcop.config import Config
 from gw2kcop.io.text import read_text
-from gw2kcop.transactions import master, valuations, xtb
+from gw2kcop.transactions import master, ppk, valuations, xtb
 from gw2kcop.transactions.engine import ParseError, parse_export
 from gw2kcop.transactions.formats import FormatSpec, detect
 from gw2kcop.transactions.reference import Reference
@@ -78,16 +78,23 @@ def _move_done(path: Path) -> Path:
     return target
 
 
-# Institutions parsed in code (not TOML): file suffix and format name shown to the user.
-CODE_PARSERS = {xtb.INSTITUTION: (".xlsx", "xtb.statement")}
+# Institutions parsed in code (not TOML): file suffix, format name shown to the user and
+# the parser ``(source, account, reference, config) -> (transactions, notes)``.
+CODE_PARSERS = {
+    xtb.INSTITUTION: (".xlsx", "xtb.statement",
+                      lambda src, acc, ref, cfg: xtb.parse_statement(src, acc, ref, cfg.timezone)),
+    ppk.NN_INSTITUTION: (".xls", "nn.ppk_history", lambda src, acc, ref, cfg: ppk.parse_nn(src, acc, ref)),
+    ppk.ING_INSTITUTION: (".csv", "ing.ppk_history", lambda src, acc, ref, cfg: ppk.parse_ing(src, acc, ref)),
+}
 
 
 def import_code_file(path: Path, account: Account, reference: Reference, config: Config,
                      dry_run: bool) -> FileResult:
-    """A file of an institution parsed in code (today: XTB statements)."""
+    """A file of an institution parsed in code (XTB statements, PPK histories)."""
     result = FileResult(path=path, account_id=account.account_id, status="error",
                         format=CODE_PARSERS[account.institution][1])
-    result = _import_statement(path, path.name, account, reference, config, dry_run, result)
+    result = _import_statement(path, path.name, account, reference, config, dry_run, result,
+                               CODE_PARSERS[account.institution][2])
     if result.status == "imported":
         result.moved_to = _move_done(path)
     return result
@@ -172,9 +179,9 @@ def import_zip(path: Path, accounts: list[Account], reference: Reference, config
 
 
 def _import_statement(source, source_file: str, account: Account, reference: Reference, config: Config,
-                      dry_run: bool, result: FileResult) -> FileResult:
+                      dry_run: bool, result: FileResult, parse=CODE_PARSERS[xtb.INSTITUTION][2]) -> FileResult:
     try:
-        txs, notes = xtb.parse_statement(source, account, reference, config.timezone)
+        txs, notes = parse(source, account, reference, config)
         result.note = "; ".join(notes)
         if dry_run:
             result.added, result.skipped = master.count_new(config.data_dir, txs)

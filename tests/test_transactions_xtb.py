@@ -252,3 +252,26 @@ def test_zip_folder_after_import_is_quiet(tmp_path, capsys):
     main(["--config", str(cfg), "transactions", "import", "2026-11", "--dry-run"])
     out = capsys.readouterr().out
     assert "OWNA-XTB" not in out and "OWNA-TYPO/: no such account_id" in out
+
+
+def test_zip_in_the_account_folder(tmp_path, capsys):
+    cfg, _data, month = _zip_setup(tmp_path)
+    folder = month / "OWNA-TEST-0"
+    folder.mkdir()
+    _zip(folder / "s_1234567890.zip", tmp_path, {f"{NUMBER}/a.xlsx": NUMBER})
+    assert main(["--config", str(cfg), "transactions", "import", "2026-11"]) == 0
+    out = capsys.readouterr().out
+    assert "added 8" in out and "only .xlsx" not in out
+    assert (folder / "_zaimportowane" / "s_1234567890.zip").exists()
+
+
+def test_zip_in_the_folder_of_another_account_is_refused(tmp_path, capsys):
+    second = "00000003"
+    cfg, data, month = _zip_setup(tmp_path, (NUMBER, second))
+    folder = month / "OWNA-TEST-1"
+    folder.mkdir()
+    _zip(folder / "s.zip", tmp_path, {f"{NUMBER}/a.xlsx": NUMBER})
+    assert main(["--config", str(cfg), "transactions", "import", "2026-11"]) != 0
+    out = capsys.readouterr().out
+    assert "belongs to OWNA-TEST-0, but the ZIP is in the folder of OWNA-TEST-1" in out
+    assert (folder / "s.zip").exists() and not (data / "transactions.csv").exists()

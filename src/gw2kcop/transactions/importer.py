@@ -129,12 +129,14 @@ def _zip_members(path: Path) -> tuple[list[tuple[str, bytes]], list[str]]:
 
 
 def import_zip(path: Path, accounts: list[Account], reference: Reference, config: Config,
-               dry_run: bool, only_account: str | None = None) -> tuple[list[FileResult], list[str]]:
-    """An XTB ZIP (one folder per account number, one statement each) in the month folder.
+               dry_run: bool, only_account: str | None = None,
+               folder_account: str | None = None) -> tuple[list[FileResult], list[str]]:
+    """An XTB ZIP (one folder per account number, one statement each).
 
     Each statement goes to the account whose ``export_identifier`` equals the account
-    number inside the file. The ZIP moves to ``_zaimportowane/`` only when every
-    statement in it was imported.
+    number inside the file. ``folder_account``: the ZIP sits in that account's folder,
+    so every statement in it must belong to that account. The ZIP moves to
+    ``_zaimportowane/`` only when every statement in it was imported.
     """
     by_number = {a.export_identifier: a for a in accounts
                  if a.institution == xtb.INSTITUTION and a.export_identifier and a.import_method == "parser"}
@@ -157,6 +159,9 @@ def import_zip(path: Path, accounts: list[Account], reference: Reference, config
             result.message = "no xtb account in accounts.csv has this account number as export_identifier"
         elif folder and folder != number:
             result.message = "the folder name in the ZIP is not the account number inside the file"
+        elif folder_account and account.account_id != folder_account:
+            result.message = (f"the statement belongs to {account.account_id}, but the ZIP is in the folder "
+                              f"of {folder_account}")
         if result.message:
             results.append(result)
             complete = False
@@ -311,6 +316,12 @@ def import_folder(config: Config, accounts: list[Account], specs: list[FormatSpe
         if account.institution in CODE_PARSERS:
             suffix = CODE_PARSERS[account.institution][0]
             for path in files:
+                if account.institution == xtb.INSTITUTION and path.suffix.lower() == ".zip":
+                    zip_results, zip_notes = import_zip(path, accounts, reference, config, dry_run,
+                                                        folder_account=account.account_id)
+                    results.extend(zip_results)
+                    notes.extend(f"{entry.name}/{n}" for n in zip_notes)
+                    continue
                 if path.suffix.lower() != suffix:
                     notes.append(f"{entry.name}/{path.name}: only {suffix} is supported for this account, not imported")
                     continue

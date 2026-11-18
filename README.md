@@ -63,7 +63,7 @@ Complex formats get Python code.
 | Erste Brokerage (PL) | trade report and cash history (CSV); securities history and holdings report are not needed | TOML, **works** on synthetic data (WSE sales, dividends, deposits; buys not sampled yet) |
 | Bossa | `financeHistory.csv` (trades, deposits, dividends; `hisPW.csv` is not needed) | TOML, **works** on synthetic data |
 | PPK ING | transaction history (CSV, English portal; one file per selected period, overlaps are deduplicated) | code, **works** on synthetic data (see PPK below) |
-| XTB | account statement (XLSX), or the multi-account ZIP dropped into the month folder a folder of its own such as `OWNA-XTB/`, or the account's own folder (each statement goes to the account whose `export_identifier` is its account number; in an account's folder every statement must belong to that account) | code, **works** (no sales yet) |
+| XTB | account statement (XLSX), or the multi-account ZIP dropped into the month folder, a folder of its own such as `OWNA-XTB/`, or the account's own folder (each statement goes to the account whose `export_identifier` is its account number; in an account's folder every statement must belong to that account) | code, **works** (no sales yet; a purchase in another currency than the account's, e.g. a GBP ETF bought from a PLN account, keeps the price in the instrument's currency from `instruments.csv` and the amount paid by the account, conversion cost included) |
 | PPK Nationale-Nederlanden | transaction history (XLS, needs `xlrd`) | code, **works** on synthetic data (see PPK below) |
 
 ### PPK

@@ -230,11 +230,24 @@ def parse_statement(source: Path, account: Account, reference: Reference,
                 errors.append(f"{where}: comment ticker {m['ticker']} != Ticker {ticker}")
                 continue
             qty, price = Decimal(m["qty"]), Decimal(m["price"])
-            if abs(qty * price + amount) > CENT:
-                errors.append(f"{where}: amount {amount} != quantity x price ({qty} x {price}): "
-                              "fee or currency conversion inside a purchase is not supported yet")
-                continue
-            tx.update(quantity=qty, price=price, price_currency=account.currency, fee=Decimal(0))
+            if abs(qty * price + amount) <= CENT:
+                tx.update(quantity=qty, price=price, price_currency=account.currency, fee=Decimal(0))
+            elif not tx.get("instrument"):
+                continue  # unknown alias: reported as missing, the currency cannot be checked yet
+            else:
+                # A purchase in another currency, converted by XTB (e.g. a GBP ETF bought from a PLN
+                # account): the price stays in the instrument's currency from instruments.csv, the
+                # amount is what the account paid, conversion cost included (not shown separately).
+                quoted = reference.tickers.get(tx["instrument"], {}).get("currency", "")
+                if quoted in ("", account.currency) or not re.fullmatch(r"[A-Z]{3}", quoted):
+                    errors.append(f"{where}: amount {amount} != quantity x price ({qty} x {price}) and "
+                                  f"instruments.csv gives currency {quoted!r} for {tx['instrument']}: "
+                                  "fee inside a same-currency purchase is not supported yet")
+                    continue
+                rate = (-amount / (qty * price)).quantize(Decimal("0.0001"))
+                tx.update(quantity=qty, price=price, price_currency=quoted,
+                          description=f"{comment} (paid in {account.currency}, about {rate} "
+                                      f"{account.currency}/{quoted} incl. conversion)")
         elif our_type in ("dividend",) or kind == "Withholding tax":
             tx.update(group_id=f"{INSTITUTION}|{account.account_id}|div:{ticker}:{day.isoformat()}")
         elif kind in ("Free funds interest", "Free funds interest tax"):

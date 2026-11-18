@@ -252,3 +252,31 @@ def test_zip_folder_after_import_is_quiet(tmp_path, capsys):
     main(["--config", str(cfg), "transactions", "import", "2026-11", "--dry-run"])
     out = capsys.readouterr().out
     assert "OWNA-XTB" not in out and "OWNA-TYPO/: no such account_id" in out
+
+
+PLN_ACCOUNT = Account("OWNA-TEST-PLN", "xtb", "owna", NUMBER, "Test PLN", "brokerage", "PLN", True, "parser")
+GBP_BUY = ("Stock purchase", "Test ETF", "TEST.UK", "ETF", datetime(2026, 6, 2, 7, 0), -400.0, "2001",
+           "OPEN BUY 3 @ 20.000", "My Trades", "9101")
+
+
+def _gbp_ref(currency="GBP"):
+    r = ref()
+    r.tickers["LON:TEST"] = {"ticker": "LON:TEST", "isin": "IE0000000001", "currency": currency}
+    r.aliases[("xtb", "TEST.UK")] = "LON:TEST"
+    return r
+
+
+def test_purchase_in_another_currency(tmp_path):
+    path = build(tmp_path / "a.xlsx", cash=[GBP_BUY], currency="PLN")
+    txs, _ = parse_statement(path, PLN_ACCOUNT, _gbp_ref(), WARSAW)
+    (buy,) = txs
+    assert (buy.quantity, buy.price, buy.price_currency) == (Decimal(3), Decimal("20.000"), "GBP")
+    assert buy.amount == Decimal("-400.00") and buy.currency == "PLN" and buy.fee is None
+    assert buy.description == "OPEN BUY 3 @ 20.000 (paid in PLN, about 6.6667 PLN/GBP incl. conversion)"
+
+
+@pytest.mark.parametrize("currency", ["", "PLN"])
+def test_purchase_mismatch_without_another_currency_stops(tmp_path, currency):
+    path = build(tmp_path / "a.xlsx", cash=[GBP_BUY], currency="PLN")
+    with pytest.raises(ParseError, match="fee inside a same-currency purchase"):
+        parse_statement(path, PLN_ACCOUNT, _gbp_ref(currency), WARSAW)

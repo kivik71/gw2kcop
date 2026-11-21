@@ -47,11 +47,21 @@ def test_download_validates_and_splits_long_ranges():
         {"no": "001/A/NBP/2026", "effectiveDate": "2026-01-02", "mid": 0}]}).encode(), "implausible"),
     (json.dumps({"table": "A", "code": "USD", "rates": [
         {"no": "001/A/NBP/2026", "effectiveDate": "2020-01-02", "mid": 4}]}).encode(), "implausible"),
+    (json.dumps({"table": "A", "code": "USD", "rates": [
+        {"no": "0001/A/NBP/2026", "effectiveDate": "2026-01-02", "mid": 4}]}).encode(), "implausible"),
     (b"<html>", "unexpected answer"),
 ])
 def test_download_fails_closed(body, message):
     with pytest.raises(fx.FxError, match=message):
         nbp.download("USD", date(2026, 1, 1), date(2026, 1, 31), fetch=lambda url: body)
+
+
+def test_accepts_old_unpadded_table_numbers():
+    # Real NBP answer for GBP on 2009-01-02: table number without zero padding.
+    body = json.dumps({"table": "A", "code": "GBP", "rates": [
+        {"no": "1/A/NBP/2009", "effectiveDate": "2009-01-02", "mid": 4.3541}]}).encode()
+    (rate,) = nbp.download("GBP", date(2009, 1, 1), date(2009, 1, 31), fetch=lambda url: body)
+    assert (rate.date, rate.rate, rate.table) == (date(2009, 1, 2), Decimal("4.3541"), "1/A/NBP/2009")
 
 
 def test_only_nbp_host_and_codes():

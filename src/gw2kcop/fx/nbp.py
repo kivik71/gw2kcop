@@ -27,7 +27,8 @@ FIRST_DAY = date(2002, 1, 2)  # first table A in the API
 MAX_DAYS = 367
 TIMEOUT = 30
 RETRIES = 3
-_TABLE_RE = re.compile(r"^\d{3}/A/NBP/\d{4}$")
+# Older tables are not zero-padded (e.g. "1/A/NBP/2009"), newer ones are ("001/A/NBP/2026").
+_TABLE_RE = re.compile(r"^\d{1,3}/A/NBP/\d{4}$")
 
 
 Fetch = Callable[[str], bytes | None]  # URL -> body, or None for "no data" (HTTP 404)
